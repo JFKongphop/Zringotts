@@ -1,25 +1,25 @@
-pragma circom 2.2.0;
+pragma circom 2.1.6;
 
 include "../node_modules/circomlib/circuits/poseidon.circom";
 include "../node_modules/circomlib/circuits/comparators.circom";
 
-template HashMyNote(
-  LENT_AMT,
-  BORROW_AMT,
-  WILL_LIG_PRICE,
-  TIMESTAMP,
-  NULLIFIER,
-  NONCE
-) {
+template HashMyNote() {
+  signal input lendAmt;
+  signal input borrowAmt;
+  signal input willLiqPrice;
+  signal input timestamp;
+  signal input nullifier;
+  signal input nonce;
+
   signal output hash;
 
   component h = Poseidon(6);
-  h.inputs[0] <== LENT_AMT;
-  h.inputs[1] <== BORROW_AMT;
-  h.inputs[2] <== WILL_LIG_PRICE;
-  h.inputs[3] <== TIMESTAMP;
-  h.inputs[4] <== NULLIFIER;
-  h.inputs[5] <== NONCE;
+  h.inputs[0] <== lendAmt;
+  h.inputs[1] <== borrowAmt;
+  h.inputs[2] <== willLiqPrice;
+  h.inputs[3] <== timestamp;
+  h.inputs[4] <== nullifier;
+  h.inputs[5] <== nonce;
 
   hash <== h.out;
 }
@@ -431,14 +431,13 @@ template Main() {
   // -----------------------------------------------------------------
   // previous note hash
   // -----------------------------------------------------------------
-  component prevHash = HashMyNote(
-    prev_lend_amt,
-    prev_borrow_amt,
-    prev_will_liq_price,
-    prev_timestamp,
-    prev_nullifier,
-    prev_nonce
-  );
+  component prevHash = HashMyNote();
+  prevHash.lendAmt <== prev_lend_amt;
+  prevHash.borrowAmt <== prev_borrow_amt;
+  prevHash.willLiqPrice <== prev_will_liq_price;
+  prevHash.timestamp <== prev_timestamp;
+  prevHash.nullifier <== prev_nullifier;
+  prevHash.nonce <== prev_nonce;
 
   // previous note is empty iff lend + borrow + liq price == 0
   signal prev_sum;
@@ -586,14 +585,24 @@ template Main() {
   // -----------------------------------------------------------------
   // final new note hash
   // -----------------------------------------------------------------
-  component newHash = HashMyNote(
-    new_lend_amt,
-    new_borrow_amt,
-    new_will_liq_price,
-    new_timestamp,
-    new_nullifier,
-    new_nonce
-  );
+  component newHash = HashMyNote();
+  newHash.lendAmt <== new_lend_amt;
+  newHash.borrowAmt <== new_borrow_amt;
+  newHash.willLiqPrice <== new_will_liq_price;
+  newHash.timestamp <== new_timestamp;
+  newHash.nullifier <== new_nullifier;
+  newHash.nonce <== new_nonce;
 
   newHash.hash === new_note_hash;
 }
+
+component main {public [
+  new_note_hash,
+  root,
+  liq_price,
+  liq_timestamp,
+  lend_token_out,
+  borrow_token_out,
+  lend_token_in,
+  borrow_token_in
+]} = Main();
