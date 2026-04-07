@@ -24,7 +24,10 @@ template HashMyNote() {
   hash <== h.out;
 }
 
-template AssertLTV(LENT_AMT, BORROW_AMT, WILL_LIG_PRICE) {
+template AssertLTV() {
+  signal input LENT_AMT;
+  signal input BORROW_AMT;
+  signal input WILL_LIG_PRICE;
   var LTV_THRESHOLD = 50;
   component cmp = LessEqThan(252);
 
@@ -34,14 +37,31 @@ template AssertLTV(LENT_AMT, BORROW_AMT, WILL_LIG_PRICE) {
   cmp.out === 1;
 }
 
-template AbsDiff(X, Y) {
+template AbsDiff() {
+  signal input X;
+  signal input Y;
   signal output out;
+
+  var diff;
+  diff = X - Y;
 
   component geq = GreaterEqThan(252);
   geq.in[0] <== X;
   geq.in[1] <== Y;
 
-  out <== geq.out * (X - Y) + (1 - geq.out) * (Y - X);
+  // selector boolean
+  var sel;
+  sel = geq.out; // sel = 1 if X >= Y, 0 otherwise
+
+  // enforce abs using selector
+  signal posDiff;
+  signal negDiff;
+
+  posDiff <== diff * sel;
+  negDiff <== (-diff) * (1 - sel);
+
+  // sum safely: define out as a signal and constrain it
+  out <== posDiff + negDiff;
 }
 
 template IsWithinPercentage() {
@@ -50,13 +70,15 @@ template IsWithinPercentage() {
   signal input PERCENT;
   signal output out;
 
-  signal diff;
-  signal allowDiff;
+  var diff;
+  var allowDiff;
 
-  component absDiff = AbsDiff(X, Y);
-  diff <== absDiff.out;
+  component absDiff = AbsDiff();
+  absDiff.X <== X;
+  absDiff.Y <== Y;
+  diff = absDiff.out;
 
-  allowDiff <== (PERCENT * Y) / 100;
+  allowDiff = (PERCENT * Y) / 100;
 
   component cmp = LessEqThan(252);
   cmp.in[0] <== diff;
@@ -65,37 +87,37 @@ template IsWithinPercentage() {
   out <== cmp.out;
 }
 
-template IsMyPositionLiquidated(
-  MY_PRICE,
-  LIQ_PRICE,
-  MY_TIME,
-  LIQ_TIME,
-  BORROW_INTEREST_RATE,
-  LEND_INTEREST_RATE,
-  ACCEPTABLE_PERCENT
-) {
+template IsMyPositionLiquidated() {
+  signal input myPrice;
+  signal input liqPrice;
+  signal input myTime;
+  signal input liqTime;
+  signal input borrowInterestRate;
+  signal input lendInterestRate;
+  signal input acceptablePercent;
   signal output out;
 
   var ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
+  var ACCEPTABLE_PERCENT = 1;
 
   component geqTime = GreaterEqThan(64);
-  geqTime.in[0] <== LIQ_TIME;
-  geqTime.in[1] <== MY_TIME;
+  geqTime.in[0] <== liqTime;
+  geqTime.in[1] <== myTime;
 
   signal timeDiff;
-  timeDiff <== LIQ_TIME - MY_TIME;
+  timeDiff <== liqTime - myTime;
 
   signal borrowFactor;
   signal lendFactor;
 
-  borrowFactor <== ONE_YEAR_SECONDS + BORROW_INTEREST_RATE * timeDiff;
-  lendFactor <== ONE_YEAR_SECONDS + LEND_INTEREST_RATE * timeDiff;
+  borrowFactor <== ONE_YEAR_SECONDS + borrowInterestRate * timeDiff;
+  lendFactor <== ONE_YEAR_SECONDS + lendInterestRate * timeDiff;
 
   signal myAdjustedPrice;
   signal liqAdjustedPrice;
 
-  myAdjustedPrice <== borrowFactor * MY_PRICE;
-  liqAdjustedPrice <== lendFactor * LIQ_PRICE;
+  myAdjustedPrice <== borrowFactor * myPrice;
+  liqAdjustedPrice <== lendFactor * liqPrice;
 
   component within = IsWithinPercentage();
   within.X <== myAdjustedPrice;
@@ -107,127 +129,44 @@ template IsMyPositionLiquidated(
   out <== geqTime.out * within.out;
 }
 
-template IsMyPosLiquidated(
-  MY_PRICE,
-  MY_TIME,
-  LIQ_PRICE_0, LIQ_TIME_0,
-  LIQ_PRICE_1, LIQ_TIME_1,
-  LIQ_PRICE_2, LIQ_TIME_2,
-  LIQ_PRICE_3, LIQ_TIME_3,
-  LIQ_PRICE_4, LIQ_TIME_4,
-  LIQ_PRICE_5, LIQ_TIME_5,
-  LIQ_PRICE_6, LIQ_TIME_6,
-  LIQ_PRICE_7, LIQ_TIME_7,
-  LIQ_PRICE_8, LIQ_TIME_8,
-  LIQ_PRICE_9, LIQ_TIME_9,
-  BORROW_INTEREST_RATE,
-  LEND_INTEREST_RATE,
-  ACCEPTABLE_PERCENT
-) {
+template IsMyPosLiquidated() {
+  signal input myPrice;
+  signal input myTime;
+
+  signal input liqPrice[10];
+  signal input liqTime[10];
+
+  signal input borrowInterestRate;
+  signal input lendInterestRate;
+  signal input acceptablePercent;
+
   signal output out;
 
-  component check0 = IsMyPositionLiquidated(
-    MY_PRICE,
-    LIQ_PRICE_0,
-    MY_TIME,
-    LIQ_TIME_0,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
+  component checks[10];
 
-  component check1 = IsMyPositionLiquidated(
-    MY_PRICE,
-    LIQ_PRICE_1,
-    MY_TIME,
-    LIQ_TIME_1,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
+  for (var i = 0; i < 10; i++) {
+    checks[i] = IsMyPositionLiquidated();
 
-  component check2 = IsMyPositionLiquidated(
-    MY_PRICE,
-    LIQ_PRICE_2,
-    MY_TIME,
-    LIQ_TIME_2,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
-
-  component check3 = IsMyPositionLiquidated(
-    MY_PRICE,
-    LIQ_PRICE_3,
-    MY_TIME,
-    LIQ_TIME_3,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
-
-  component check4 = IsMyPositionLiquidated(
-    MY_PRICE,
-    LIQ_PRICE_4,
-    MY_TIME,
-    LIQ_TIME_4,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
-
-  component check5 = IsMyPositionLiquidated(
-    MY_PRICE,
-    LIQ_PRICE_5,
-    MY_TIME,
-    LIQ_TIME_5,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
-
-  component check6 = IsMyPositionLiquidated(
-    MY_PRICE,
-    LIQ_PRICE_6,
-    MY_TIME,
-    LIQ_TIME_6,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
-
-  component check7 = IsMyPositionLiquidated(
-    MY_PRICE,
-    LIQ_PRICE_7,
-    MY_TIME,
-    LIQ_TIME_7,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
-
-  component check8 = IsMyPositionLiquidated(
-    MY_PRICE,
-    LIQ_PRICE_8,
-    MY_TIME,
-    LIQ_TIME_8,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
-
-  component check9 = IsMyPositionLiquidated(
-    MY_PRICE,
-    LIQ_PRICE_9,
-    MY_TIME,
-    LIQ_TIME_9,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
+    checks[i].myPrice <== myPrice;
+    checks[i].liqPrice <== liqPrice[i];
+    checks[i].myTime <== myTime;
+    checks[i].liqTime <== liqTime[i];
+    checks[i].borrowInterestRate <== borrowInterestRate;
+    checks[i].lendInterestRate <== lendInterestRate;
+    checks[i].acceptablePercent <== acceptablePercent;
+  }
 
   signal total;
-  total <== check0.out + check1.out + check2.out + check3.out + check4.out + check5.out + check6.out + check7.out + check8.out + check9.out;
+  total <== checks[0].out
+    + checks[1].out
+    + checks[2].out
+    + checks[3].out
+    + checks[4].out
+    + checks[5].out
+    + checks[6].out
+    + checks[7].out
+    + checks[8].out
+    + checks[9].out;
 
   component gtZero = GreaterThan(4);
   gtZero.in[0] <== total;
@@ -236,80 +175,227 @@ template IsMyPosLiquidated(
   out <== gtZero.out;
 }
 
-template AssertNonLiquidated(
-  MY_PRICE,
-  MY_TIME,
-  LIQ_PRICE_0, LIQ_TIME_0,
-  LIQ_PRICE_1, LIQ_TIME_1,
-  LIQ_PRICE_2, LIQ_TIME_2,
-  LIQ_PRICE_3, LIQ_TIME_3,
-  LIQ_PRICE_4, LIQ_TIME_4,
-  LIQ_PRICE_5, LIQ_TIME_5,
-  LIQ_PRICE_6, LIQ_TIME_6,
-  LIQ_PRICE_7, LIQ_TIME_7,
-  LIQ_PRICE_8, LIQ_TIME_8,
-  LIQ_PRICE_9, LIQ_TIME_9,
-  BORROW_INTEREST_RATE,
-  LEND_INTEREST_RATE,
-  ACCEPTABLE_PERCENT
-) {
-  component c = IsMyPosLiquidated(
-    MY_PRICE,
-    MY_TIME,
-    LIQ_PRICE_0, LIQ_TIME_0,
-    LIQ_PRICE_1, LIQ_TIME_1,
-    LIQ_PRICE_2, LIQ_TIME_2,
-    LIQ_PRICE_3, LIQ_TIME_3,
-    LIQ_PRICE_4, LIQ_TIME_4,
-    LIQ_PRICE_5, LIQ_TIME_5,
-    LIQ_PRICE_6, LIQ_TIME_6,
-    LIQ_PRICE_7, LIQ_TIME_7,
-    LIQ_PRICE_8, LIQ_TIME_8,
-    LIQ_PRICE_9, LIQ_TIME_9,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
+// template IsMyPosLiquidated(
+//   MY_PRICE,
+//   MY_TIME,
+//   LIQ_PRICE_0, LIQ_TIME_0,
+//   LIQ_PRICE_1, LIQ_TIME_1,
+//   LIQ_PRICE_2, LIQ_TIME_2,
+//   LIQ_PRICE_3, LIQ_TIME_3,
+//   LIQ_PRICE_4, LIQ_TIME_4,
+//   LIQ_PRICE_5, LIQ_TIME_5,
+//   LIQ_PRICE_6, LIQ_TIME_6,
+//   LIQ_PRICE_7, LIQ_TIME_7,
+//   LIQ_PRICE_8, LIQ_TIME_8,
+//   LIQ_PRICE_9, LIQ_TIME_9,
+//   BORROW_INTEREST_RATE,
+//   LEND_INTEREST_RATE,
+//   ACCEPTABLE_PERCENT
+// ) {
+//   signal output out;
 
+//   component check0 = IsMyPositionLiquidated();
+//   check0.myPrice <== MY_PRICE;
+//   check0.liqPrice <== LIQ_PRICE_0;
+//   check0.myTime <== MY_TIME;
+//   check0.liqTime <== LIQ_TIME_0;
+//   check0.borrowInterestRate <== BORROW_INTEREST_RATE;
+//   check0.lendInterestRate <== LEND_INTEREST_RATE;
+//   check0.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+//   component check1 = IsMyPositionLiquidated();
+//   check1.myPrice <== MY_PRICE;
+//   check1.liqPrice <== LIQ_PRICE_1;
+//   check1.myTime <== MY_TIME;
+//   check1.liqTime <== LIQ_TIME_1;
+//   check1.borrowInterestRate <== BORROW_INTEREST_RATE;
+//   check1.lendInterestRate <== LEND_INTEREST_RATE;
+//   check1.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+//   component check2 = IsMyPositionLiquidated();
+//   check2.myPrice <== MY_PRICE;
+//   check2.liqPrice <== LIQ_PRICE_2;
+//   check2.myTime <== MY_TIME;
+//   check2.liqTime <== LIQ_TIME_2;
+//   check2.borrowInterestRate <== BORROW_INTEREST_RATE;
+//   check2.lendInterestRate <== LEND_INTEREST_RATE;
+//   check2.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+//   component check3 = IsMyPositionLiquidated();
+//   check3.myPrice <== MY_PRICE;
+//   check3.liqPrice <== LIQ_PRICE_3;
+//   check3.myTime <== MY_TIME;
+//   check3.liqTime <== LIQ_TIME_3;
+//   check3.borrowInterestRate <== BORROW_INTEREST_RATE;
+//   check3.lendInterestRate <== LEND_INTEREST_RATE;
+//   check3.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+//   component check4 = IsMyPositionLiquidated();
+//   check4.myPrice <== MY_PRICE;
+//   check4.liqPrice <== LIQ_PRICE_4;
+//   check4.myTime <== MY_TIME;
+//   check4.liqTime <== LIQ_TIME_4;
+//   check4.borrowInterestRate <== BORROW_INTEREST_RATE;
+//   check4.lendInterestRate <== LEND_INTEREST_RATE;
+//   check4.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+//   component check5 = IsMyPositionLiquidated();
+//   check5.myPrice <== MY_PRICE;
+//   check5.liqPrice <== LIQ_PRICE_5;
+//   check5.myTime <== MY_TIME;
+//   check5.liqTime <== LIQ_TIME_5;
+//   check5.borrowInterestRate <== BORROW_INTEREST_RATE;
+//   check5.lendInterestRate <== LEND_INTEREST_RATE;
+//   check5.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+//   component check6 = IsMyPositionLiquidated();
+//   check6.myPrice <== MY_PRICE;
+//   check6.liqPrice <== LIQ_PRICE_6;
+//   check6.myTime <== MY_TIME;
+//   check6.liqTime <== LIQ_TIME_6;
+//   check6.borrowInterestRate <== BORROW_INTEREST_RATE;
+//   check6.lendInterestRate <== LEND_INTEREST_RATE;
+//   check6.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+//   component check7 = IsMyPositionLiquidated();
+//   check7.myPrice <== MY_PRICE;
+//   check7.liqPrice <== LIQ_PRICE_7;
+//   check7.myTime <== MY_TIME;
+//   check7.liqTime <== LIQ_TIME_7;
+//   check7.borrowInterestRate <== BORROW_INTEREST_RATE;
+//   check7.lendInterestRate <== LEND_INTEREST_RATE;
+//   check7.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+//   component check8 = IsMyPositionLiquidated();
+//   check8.myPrice <== MY_PRICE;
+//   check8.liqPrice <== LIQ_PRICE_8;
+//   check8.myTime <== MY_TIME;
+//   check8.liqTime <== LIQ_TIME_8;
+//   check8.borrowInterestRate <== BORROW_INTEREST_RATE;
+//   check8.lendInterestRate <== LEND_INTEREST_RATE;
+//   check8.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+//   component check9 = IsMyPositionLiquidated();
+//   check9.myPrice <== MY_PRICE;
+//   check9.liqPrice <== LIQ_PRICE_9;
+//   check9.myTime <== MY_TIME;
+//   check9.liqTime <== LIQ_TIME_9;
+//   check9.borrowInterestRate <== BORROW_INTEREST_RATE;
+//   check9.lendInterestRate <== LEND_INTEREST_RATE;
+//   check9.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+//   signal total;
+//   total <== check0.out + check1.out + check2.out + check3.out + check4.out + check5.out + check6.out + check7.out + check8.out + check9.out;
+
+//   component gtZero = GreaterThan(4);
+//   gtZero.in[0] <== total;
+//   gtZero.in[1] <== 0;
+
+//   out <== gtZero.out;
+// }
+
+template AssertNonLiquidated() {
+  // Inputs
+  signal input myPrice;
+  signal input myTime;
+  signal input liqPrice[10];
+  signal input liqTime[10];
+  signal input borrowInterestRate;
+  signal input lendInterestRate;
+  signal input acceptablePercent;
+
+  // Output
+  signal output out;
+
+  // Instantiate the component
+  component c = IsMyPosLiquidated();
+
+  // Assign inputs
+  c.myPrice <== myPrice;
+  c.myTime <== myTime;
+  for (var i = 0; i < 10; i++) {
+    c.liqPrice[i] <== liqPrice[i];
+    c.liqTime[i] <== liqTime[i];
+  }
+  c.borrowInterestRate <== borrowInterestRate;
+  c.lendInterestRate <== lendInterestRate;
+  c.acceptablePercent <== acceptablePercent;
+
+  // Assert that the position is NOT liquidated
   c.out === 0;
+
+  out <== c.out;
 }
 
-template AssertLiquidated(
-  MY_PRICE,
-  MY_TIME,
-  LIQ_PRICE_0, LIQ_TIME_0,
-  LIQ_PRICE_1, LIQ_TIME_1,
-  LIQ_PRICE_2, LIQ_TIME_2,
-  LIQ_PRICE_3, LIQ_TIME_3,
-  LIQ_PRICE_4, LIQ_TIME_4,
-  LIQ_PRICE_5, LIQ_TIME_5,
-  LIQ_PRICE_6, LIQ_TIME_6,
-  LIQ_PRICE_7, LIQ_TIME_7,
-  LIQ_PRICE_8, LIQ_TIME_8,
-  LIQ_PRICE_9, LIQ_TIME_9,
-  BORROW_INTEREST_RATE,
-  LEND_INTEREST_RATE,
-  ACCEPTABLE_PERCENT
-) {
-  component c = IsMyPosLiquidated(
-    MY_PRICE,
-    MY_TIME,
-    LIQ_PRICE_0, LIQ_TIME_0,
-    LIQ_PRICE_1, LIQ_TIME_1,
-    LIQ_PRICE_2, LIQ_TIME_2,
-    LIQ_PRICE_3, LIQ_TIME_3,
-    LIQ_PRICE_4, LIQ_TIME_4,
-    LIQ_PRICE_5, LIQ_TIME_5,
-    LIQ_PRICE_6, LIQ_TIME_6,
-    LIQ_PRICE_7, LIQ_TIME_7,
-    LIQ_PRICE_8, LIQ_TIME_8,
-    LIQ_PRICE_9, LIQ_TIME_9,
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
+// template AssertLiquidated(
+//   MY_PRICE,
+//   MY_TIME,
+//   LIQ_PRICE_0, LIQ_TIME_0,
+//   LIQ_PRICE_1, LIQ_TIME_1,
+//   LIQ_PRICE_2, LIQ_TIME_2,
+//   LIQ_PRICE_3, LIQ_TIME_3,
+//   LIQ_PRICE_4, LIQ_TIME_4,
+//   LIQ_PRICE_5, LIQ_TIME_5,
+//   LIQ_PRICE_6, LIQ_TIME_6,
+//   LIQ_PRICE_7, LIQ_TIME_7,
+//   LIQ_PRICE_8, LIQ_TIME_8,
+//   LIQ_PRICE_9, LIQ_TIME_9,
+//   BORROW_INTEREST_RATE,
+//   LEND_INTEREST_RATE,
+//   ACCEPTABLE_PERCENT
+// ) {
+//   component c = IsMyPosLiquidated(
+//     MY_PRICE,
+//     MY_TIME,
+//     LIQ_PRICE_0, LIQ_TIME_0,
+//     LIQ_PRICE_1, LIQ_TIME_1,
+//     LIQ_PRICE_2, LIQ_TIME_2,
+//     LIQ_PRICE_3, LIQ_TIME_3,
+//     LIQ_PRICE_4, LIQ_TIME_4,
+//     LIQ_PRICE_5, LIQ_TIME_5,
+//     LIQ_PRICE_6, LIQ_TIME_6,
+//     LIQ_PRICE_7, LIQ_TIME_7,
+//     LIQ_PRICE_8, LIQ_TIME_8,
+//     LIQ_PRICE_9, LIQ_TIME_9,
+//     BORROW_INTEREST_RATE,
+//     LEND_INTEREST_RATE,
+//     ACCEPTABLE_PERCENT
+//   );
 
+//   c.out === 1;
+// }
+
+template AssertLiquidated() {
+  // Inputs
+  signal input myPrice;
+  signal input myTime;
+  signal input liqPrice[10];
+  signal input liqTime[10];
+  signal input borrowInterestRate;
+  signal input lendInterestRate;
+  signal input acceptablePercent;
+
+  // Output
+  signal output out;
+
+  // Instantiate the component
+  component c = IsMyPosLiquidated();
+
+  // Assign inputs
+  c.myPrice <== myPrice;
+  c.myTime <== myTime;
+  for (var i = 0; i < 10; i++) {
+    c.liqPrice[i] <== liqPrice[i];
+    c.liqTime[i] <== liqTime[i];
+  }
+  c.borrowInterestRate <== borrowInterestRate;
+  c.lendInterestRate <== lendInterestRate;
+  c.acceptablePercent <== acceptablePercent;
+
+  // Assert that the position is liquidated
   c.out === 1;
+
+  out <== c.out;
 }
 
 template Selector() {
@@ -319,7 +405,16 @@ template Selector() {
 
   sel * (1 - sel) === 0;
 
-  out <== in[0] * (1 - sel) + in[1] * sel;
+  signal selNot;
+  selNot <== 1 - sel;
+
+  signal left;
+  signal right;
+
+  left <== in[0] * selNot;
+  right <== in[1] * sel;
+
+  out <== left + right;
 }
 
 template MerkleTreeInclusionProof(levels) {
@@ -357,18 +452,39 @@ template MerkleTreeInclusionProof(levels) {
   currentHash[levels] === root;
 }
 
-template UpdateAmt(PREV_AMT, PREV_TIMESTAMP, CURR_TIMESTMAP, INTEREST_RATE) {
-  signal output out;
+template UpdateAmt() {
+    signal input PREV_AMT;
+    signal input PREV_TIMESTAMP;
+    signal input CURR_TIMESTAMP;
+    signal input INTEREST_RATE; // already scaled
+    signal output out;
 
-  var ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
+    var ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
 
-  signal timeDiff;
-  timeDiff <== CURR_TIMESTMAP - PREV_TIMESTAMP;
+    // Step 1: compute time difference
+    var timeDiff;
+    timeDiff = CURR_TIMESTAMP - PREV_TIMESTAMP;
 
-  out <== (
-    (ONE_YEAR_SECONDS + INTEREST_RATE * timeDiff)
-    * PREV_AMT
-  ) / ONE_YEAR_SECONDS;
+    // Step 2: compute interest portion separately
+    signal interestTimesDiff;
+    interestTimesDiff <== INTEREST_RATE * timeDiff;
+
+    // Step 3: multiply by previous amount
+    var amtTimesInterest;
+    amtTimesInterest = PREV_AMT * interestTimesDiff;
+
+    // Step 4: numerator = PREV_AMT * ONE_YEAR_SECONDS + amtTimesInterest
+    var numerator;
+    numerator = PREV_AMT * ONE_YEAR_SECONDS + amtTimesInterest;
+
+    // Step 5: temporary internal signal for the output
+    var outInternal;
+
+    // Step 6: scale equation to avoid division
+    outInternal * ONE_YEAR_SECONDS === numerator;
+
+    // Step 7: assign to actual output
+    out <== outInternal;
 }
 
 // helper: enforce equality only when enabled == 1
@@ -476,33 +592,29 @@ template Main() {
   // -----------------------------------------------------------------
   // liquidation check on previous note
   // -----------------------------------------------------------------
-  component wasLiquidated = IsMyPosLiquidated(
-    prev_will_liq_price,
-    prev_timestamp,
-    liq_price[0], liq_timestamp[0],
-    liq_price[1], liq_timestamp[1],
-    liq_price[2], liq_timestamp[2],
-    liq_price[3], liq_timestamp[3],
-    liq_price[4], liq_timestamp[4],
-    liq_price[5], liq_timestamp[5],
-    liq_price[6], liq_timestamp[6],
-    liq_price[7], liq_timestamp[7],
-    liq_price[8], liq_timestamp[8],
-    liq_price[9], liq_timestamp[9],
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
+  component wasLiquidated = IsMyPosLiquidated();
+
+  // Assign scalar inputs
+  wasLiquidated.myPrice <== prev_will_liq_price;
+  wasLiquidated.myTime <== prev_timestamp;
+  wasLiquidated.borrowInterestRate <== BORROW_INTEREST_RATE;
+  wasLiquidated.lendInterestRate <== LEND_INTEREST_RATE;
+  wasLiquidated.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+  // Assign array inputs
+  for (var i = 0; i < 10; i++) {
+    wasLiquidated.liqPrice[i] <== liq_price[i];
+    wasLiquidated.liqTime[i] <== liq_timestamp[i];
+  }
 
   // -----------------------------------------------------------------
   // liquidation branch calculations
   // -----------------------------------------------------------------
-  component borrowUpdated = UpdateAmt(
-    prev_borrow_amt,
-    prev_timestamp,
-    new_timestamp,
-    BORROW_INTEREST_RATE
-  );
+  component borrowUpdated = UpdateAmt();
+  borrowUpdated.PREV_AMT <== prev_borrow_amt;
+  borrowUpdated.PREV_TIMESTAMP <== prev_timestamp;
+  borrowUpdated.CURR_TIMESTAMP <== new_timestamp;
+  borrowUpdated.INTEREST_RATE <== BORROW_INTEREST_RATE;
 
   signal lend_asset_left_eqv;
   lend_asset_left_eqv <== prev_lend_amt * prev_will_liq_price;
@@ -532,12 +644,11 @@ template Main() {
   // -----------------------------------------------------------------
   // non-liquidated branch calculations
   // -----------------------------------------------------------------
-  component lendUpdated = UpdateAmt(
-    prev_lend_amt,
-    prev_timestamp,
-    new_timestamp,
-    LEND_INTEREST_RATE
-  );
+  component lendUpdated = UpdateAmt();
+  lendUpdated.PREV_AMT <== prev_lend_amt;
+  lendUpdated.PREV_TIMESTAMP <== prev_timestamp;
+  lendUpdated.CURR_TIMESTAMP <== new_timestamp;
+  lendUpdated.INTEREST_RATE <== LEND_INTEREST_RATE;
 
   signal calc_new_lend_amt;
   calc_new_lend_amt <== lendUpdated.out + lend_token_in - lend_token_out;
@@ -559,30 +670,27 @@ template Main() {
   (1 - wasLiquidated.out) * (1 - borrowCmp.out) === 0;
 
   // enforce LTV only in non-liquidated branch
-  component ltv = AssertLTV(
-    new_lend_amt,
-    new_borrow_amt,
-    new_will_liq_price
-  );
+  component ltv = AssertLTV();
+  ltv.LENT_AMT <== new_lend_amt;
+  ltv.BORROW_AMT <== new_borrow_amt;
+  ltv.WILL_LIG_PRICE <== new_will_liq_price;
 
-      // ensure new note is not liquidated in non-liquidated branch
-  component newNotLiquidated = AssertNonLiquidated(
-    new_will_liq_price,
-    new_timestamp,
-    liq_price[0], liq_timestamp[0],
-    liq_price[1], liq_timestamp[1],
-    liq_price[2], liq_timestamp[2],
-    liq_price[3], liq_timestamp[3],
-    liq_price[4], liq_timestamp[4],
-    liq_price[5], liq_timestamp[5],
-    liq_price[6], liq_timestamp[6],
-    liq_price[7], liq_timestamp[7],
-    liq_price[8], liq_timestamp[8],
-    liq_price[9], liq_timestamp[9],
-    BORROW_INTEREST_RATE,
-    LEND_INTEREST_RATE,
-    ACCEPTABLE_PERCENT
-  );
+
+  // ensure new note is not liquidated in non-liquidated branch
+  component newNotLiquidated = AssertNonLiquidated();
+
+  // Assign scalar inputs
+  newNotLiquidated.myPrice <== new_will_liq_price;
+  newNotLiquidated.myTime <== new_timestamp;
+  newNotLiquidated.borrowInterestRate <== BORROW_INTEREST_RATE;
+  newNotLiquidated.lendInterestRate <== LEND_INTEREST_RATE;
+  newNotLiquidated.acceptablePercent <== ACCEPTABLE_PERCENT;
+
+  // Assign array inputs
+  for (var i = 0; i < 10; i++) {
+    newNotLiquidated.liqPrice[i] <== liq_price[i];
+    newNotLiquidated.liqTime[i] <== liq_timestamp[i];
+  }
 
   // -----------------------------------------------------------------
   // final new note hash
