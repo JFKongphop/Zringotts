@@ -44,7 +44,10 @@ template AbsDiff(X, Y) {
   out <== geq.out * (X - Y) + (1 - geq.out) * (Y - X);
 }
 
-template IsWithinPercentage(X, Y, PERCENT) {
+template IsWithinPercentage() {
+  signal input X;
+  signal input Y;
+  signal input PERCENT;
   signal output out;
 
   signal diff;
@@ -94,11 +97,10 @@ template IsMyPositionLiquidated(
   myAdjustedPrice <== borrowFactor * MY_PRICE;
   liqAdjustedPrice <== lendFactor * LIQ_PRICE;
 
-  component within = IsWithinPercentage(
-    myAdjustedPrice,
-    liqAdjustedPrice,
-    ACCEPTABLE_PERCENT
-  );
+  component within = IsWithinPercentage();
+  within.X <== myAdjustedPrice;
+  within.Y <== liqAdjustedPrice;
+  within.PERCENT <== ACCEPTABLE_PERCENT;
 
   // if LIQ_TIME < MY_TIME => 0
   // else => result of within percentage
