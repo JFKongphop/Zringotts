@@ -17,7 +17,7 @@ vkey:
 	snarkjs zkey export verificationkey build/zringotts.zkey build/verification_key.json
 
 gen-con:
-	snarkjs zkey export solidityverifier build/zringotts.zkey contracts/Groth16Verifier.sol
+	snarkjs zkey export solidityverifier build/zringotts.zkey build/Groth16Verifier.sol
 
 c-full:
 	make c-com && make c-p1 && make c-p2 && make c-final && make zkey && make vkey && make gen-con
