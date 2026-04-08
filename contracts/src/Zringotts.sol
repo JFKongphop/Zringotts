@@ -1,0 +1,478 @@
+// https://tornado.cash
+/*
+ * d888888P                                           dP              a88888b.                   dP
+ *    88                                              88             d8'   `88                   88
+ *    88    .d8888b. 88d888b. 88d888b. .d8888b. .d888b88 .d8888b.    88        .d8888b. .d8888b. 88d888b.
+ *    88    88'  `88 88'  `88 88'  `88 88'  `88 88'  `88 88'  `88    88        88'  `88 Y8ooooo. 88'  `88
+ *    88    88.  .88 88       88    88 88.  .88 88.  .88 88.  .88 dP Y8.   .88 88.  .88       88 88    88
+ *    dP    `88888P' dP       dP    dP `88888P8 `88888P8 `88888P' 88  Y88888P' `88888P8 `88888P' dP    dP
+ * ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
+ */
+
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import {MerkleTreeWithHistory} from "./MerkleTreeWithHistory.sol";
+import {ReentrancyGuard} from "./ReentrancyGuard.sol";
+import {MockToken} from "./MockToken.sol";
+import {Groth16Verifier} from "./Groth16Verifier.sol";
+
+interface IVerifier {
+  function verifyProof(
+    uint256[2] calldata _pA,
+    uint256[2][2] calldata _pB,
+    uint256[2] calldata _pC,
+    uint256[26] calldata _pubSignals
+  )
+    external
+    view
+    returns (bool);
+}
+
+contract zkLend is MerkleTreeWithHistory, ReentrancyGuard {
+  IVerifier public immutable verifier;
+
+  MockToken public weth;
+  MockToken public usdc;
+
+  struct State {
+    int256 weth_deposit_amount;
+    int256 weth_borrow_amount;
+    int256 usdc_deposit_amount;
+    int256 usdc_borrow_amount;
+  }
+
+  State public state;
+
+  struct Liquidated {
+    uint256 liq_price;
+    uint256 timestamp;
+  }
+
+  uint256 public constant LIQUIDATED_ARRAY_NUMBER = 10;
+  Liquidated[] public liquidated_array;
+
+  mapping(bytes32 => bool) public nullifierHashes;
+  // we store all commitments just to prevent accidental deposits with the same commitment
+  mapping(bytes32 => bool) public commitments;
+
+  event Deposit(bytes32 nullifierHash, uint256 timestamp);
+  event Borrow(address to, bytes32 nullifierHash, uint256 timestamp);
+  event Repay(bytes32 nullifierHash, uint256 timestamp);
+  event Withdraw(address to, bytes32 nullifierHash, uint256 timestamp);
+  event Claim(address to, bytes32 nullifierHash, uint256 timestamp);
+  event CommitmentAdded(bytes32 indexed commitment, uint32 indexed leafIndex);
+
+  // event Withdrawal(address to, bytes32 nullifierHash, address indexed relayer, uint256 fee);
+
+  // /**
+  //  * @dev The constructor
+  //  * @param _verifier the address of SNARK verifier for this contract
+  //  * @param _hasher the address of Poseidon hash contract
+  //  * @param _denomination transfer amount for each deposit
+  //  * @param _merkleTreeHeight the height of deposits' Merkle Tree
+  //  */
+  constructor(
+    IVerifier _verifier,
+    uint32 _merkleTreeHeight,
+    MockToken _weth,
+    MockToken _usdc
+  )
+    MerkleTreeWithHistory(_merkleTreeHeight)
+  {
+    verifier = _verifier;
+
+    // Initialize liquidated array
+    for (uint256 i = 0; i < LIQUIDATED_ARRAY_NUMBER; i++) {
+      liquidated_array.push(Liquidated({liq_price: i + 1, timestamp: 0}));
+    }
+
+    weth = _weth;
+    usdc = _usdc;
+  }
+
+  function flatten_liquidated_array() public view returns (uint256[] memory) {
+    uint256[] memory output = new uint256[](LIQUIDATED_ARRAY_NUMBER * 2);
+    for (uint256 i = 0; i < LIQUIDATED_ARRAY_NUMBER; i++) {
+      output[2 * i] = liquidated_array[i].liq_price;
+      output[2 * i + 1] = liquidated_array[i].timestamp;
+    }
+    return output;
+  }
+
+  function update_liquidated_array(uint8 index, uint256 _liq_price, uint256 _timestamp) public {
+    require(index < LIQUIDATED_ARRAY_NUMBER, "Index exceeds number of possible liquidated position buckets");
+    liquidated_array[index].liq_price = _liq_price;
+    liquidated_array[index].timestamp = _timestamp;
+  }
+
+  modifier isWethOrUsdc(MockToken _token) {
+    require(_token == weth || _token == usdc, "Token must be weth or usdc");
+    _;
+  }
+
+  function constructPublicInputs(
+    bytes32 _new_note_hash,
+    bytes32 _new_will_liq_price,
+    uint256 _new_timestamp,
+    bytes32 _root,
+    bytes32 _old_nullifier,
+    uint256 _lend_token_out,
+    uint256 _borrow_token_out,
+    uint256 _lend_token_in,
+    uint256 _borrow_token_in
+  )
+    public
+    view
+    returns (uint256[26] memory)
+  {
+    uint256[26] memory public_inputs;
+    public_inputs[0] = uint256(_new_note_hash);
+    public_inputs[1] = uint256(_new_will_liq_price);
+    public_inputs[2] = _new_timestamp;
+    public_inputs[3] = uint256(_old_nullifier);
+    public_inputs[4] = uint256(_root);
+    public_inputs[5] = liquidated_array[0].liq_price;
+    public_inputs[6] = liquidated_array[0].timestamp;
+    public_inputs[7] = liquidated_array[1].liq_price;
+    public_inputs[8] = liquidated_array[1].timestamp;
+    public_inputs[9] = liquidated_array[2].liq_price;
+    public_inputs[10] = liquidated_array[2].timestamp;
+    public_inputs[11] = liquidated_array[3].liq_price;
+    public_inputs[12] = liquidated_array[3].timestamp;
+    public_inputs[13] = liquidated_array[4].liq_price;
+    public_inputs[14] = liquidated_array[4].timestamp;
+    public_inputs[15] = liquidated_array[5].liq_price;
+    public_inputs[16] = liquidated_array[5].timestamp;
+    public_inputs[17] = liquidated_array[6].liq_price;
+    public_inputs[18] = liquidated_array[6].timestamp;
+    public_inputs[19] = liquidated_array[7].liq_price;
+    public_inputs[20] = liquidated_array[7].timestamp;
+    public_inputs[21] = liquidated_array[8].liq_price;
+    public_inputs[22] = liquidated_array[8].timestamp;
+    public_inputs[23] = liquidated_array[9].liq_price;
+    public_inputs[24] = liquidated_array[9].timestamp;
+    public_inputs[25] = _lend_token_out;
+    return public_inputs;
+  }
+
+  function deposit(
+    bytes32 _new_note_hash,
+    bytes32 _new_will_liq_price,
+    uint256 _new_timestamp,
+    bytes32 _root,
+    bytes32 _old_nullifier,
+    uint256[2] calldata _pA,
+    uint256[2][2] calldata _pB,
+    uint256[2] calldata _pC,
+    uint256 _lend_amt,
+    MockToken _lend_token
+  )
+    external
+    payable
+    nonReentrant
+    isWethOrUsdc(_lend_token)
+  {
+    // TODO: check _new_will_liq_price is valid from some price oracle
+
+    // Check valid timestamp
+    require(
+      _new_timestamp > block.timestamp - 5 minutes, "Invalid timestamp, must be within 5 minutes of proof generation"
+    );
+    require(_new_timestamp <= block.timestamp, "Invalid timestamp, must be in the past");
+
+    // Transfer token from user to contract
+    require(_lend_token.transferFrom(msg.sender, address(this), _lend_amt), "Token lend failed");
+
+    // Verify proof
+    uint256[26] memory public_inputs = constructPublicInputs(
+      _new_note_hash,
+      _new_will_liq_price,
+      _new_timestamp,
+      _root,
+      _old_nullifier,
+      0,
+      0,
+      _lend_amt, // lend token in
+      0
+    );
+    require(verifier.verifyProof(_pA, _pB, _pC, public_inputs), "Invalid deposit proof");
+
+    // New note commitment add to tree
+    require(!commitments[_new_note_hash], "The commitment has been submitted");
+    uint32 inserted_index = _insert(_new_note_hash);
+    commitments[_new_note_hash] = true;
+
+    // if old nullifier is not zero (new note), check if it is spent
+    if (_old_nullifier != bytes32(0)) {
+      // Check valid root
+      require(isKnownRoot(_root), "Cannot find your merkle root");
+
+      // Check old note nullifier
+      require(!nullifierHashes[_old_nullifier], "The note has been already spent");
+      nullifierHashes[_old_nullifier] = true;
+    }
+
+    if (_lend_token == weth) {
+      state.weth_deposit_amount += int256(_lend_amt);
+    } else {
+      state.usdc_deposit_amount += int256(_lend_amt);
+    }
+
+    emit CommitmentAdded(_new_note_hash, inserted_index);
+    emit Deposit(_old_nullifier, _new_timestamp);
+  }
+
+  function borrow(
+    bytes32 _new_note_hash,
+    bytes32 _new_will_liq_price,
+    uint256 _new_timestamp,
+    bytes32 _root,
+    bytes32 _old_nullifier,
+    uint256[2] calldata _pA,
+    uint256[2][2] calldata _pB,
+    uint256[2] calldata _pC,
+    uint256 _borrow_amt,
+    MockToken _borrow_token,
+    address _to
+  )
+    external
+    payable
+    nonReentrant
+    isWethOrUsdc(_borrow_token)
+  {
+    // TODO: check _new_will_liq_price is valid from some price oracle
+
+    // Check valid timestamp
+    require(
+      _new_timestamp > block.timestamp - 5 minutes, "Invalid timestamp, must be within 5 minutes of proof generation"
+    );
+    require(_new_timestamp <= block.timestamp, "Invalid timestamp, must be in the past");
+
+    _borrow_token.transfer(_to, _borrow_amt);
+
+    // Verify proof
+    uint256[26] memory public_inputs = constructPublicInputs(
+      _new_note_hash,
+      _new_will_liq_price,
+      _new_timestamp,
+      _root,
+      _old_nullifier,
+      0,
+      0,
+      0,
+      _borrow_amt // borrow token in
+    );
+    require(verifier.verifyProof(_pA, _pB, _pC, public_inputs), "Invalid borrow proof");
+
+    // New note commitment add to tree
+    require(!commitments[_new_note_hash], "The commitment has been submitted");
+    uint32 inserted_index = _insert(_new_note_hash);
+    commitments[_new_note_hash] = true;
+
+    // Check valid root
+    require(isKnownRoot(_root), "Cannot find your merkle root");
+
+    // Check old nullifier is not zero
+    require(_old_nullifier != bytes32(0), "Old nullifier must not be zero");
+
+    // Check old note nullifier
+    require(!nullifierHashes[_old_nullifier], "The note has been already spent");
+    nullifierHashes[_old_nullifier] = true;
+
+    if (_borrow_token == weth) {
+      state.weth_borrow_amount += int256(_borrow_amt);
+    } else {
+      state.usdc_borrow_amount += int256(_borrow_amt);
+    }
+
+    emit CommitmentAdded(_new_note_hash, inserted_index);
+    emit Borrow(_to, _old_nullifier, _new_timestamp);
+  }
+
+  function repay(
+    bytes32 _new_note_hash,
+    bytes32 _new_will_liq_price,
+    uint256 _new_timestamp,
+    bytes32 _root,
+    bytes32 _old_nullifier,
+    uint256[2] calldata _pA,
+    uint256[2][2] calldata _pB,
+    uint256[2] calldata _pC,
+    uint256 _repay_amt,
+    MockToken _repay_token
+  )
+    external
+    payable
+    nonReentrant
+    isWethOrUsdc(_repay_token)
+  {
+    // TODO: check _new_will_liq_price is valid from some price oracle
+
+    // Check valid timestamp
+    require(
+      _new_timestamp > block.timestamp - 5 minutes, "Invalid timestamp, must be within 5 minutes of proof generation"
+    );
+    require(_new_timestamp <= block.timestamp, "Invalid timestamp, must be in the past");
+
+    _repay_token.transferFrom(msg.sender, address(this), _repay_amt);
+
+    // Verify proof
+    uint256[26] memory public_inputs = constructPublicInputs(
+      _new_note_hash,
+      _new_will_liq_price,
+      _new_timestamp,
+      _root,
+      _old_nullifier,
+      0,
+      _repay_amt, // borrow token out (from wallet)
+      0,
+      0
+    );
+    require(verifier.verifyProof(_pA, _pB, _pC, public_inputs), "Invalid repay proof");
+
+    // New note commitment add to tree
+    require(!commitments[_new_note_hash], "The commitment has been submitted");
+    uint32 inserted_index = _insert(_new_note_hash);
+    commitments[_new_note_hash] = true;
+
+    // Check valid root
+    require(isKnownRoot(_root), "Cannot find your merkle root");
+
+    // Check old nullifier is not zero
+    require(_old_nullifier != bytes32(0), "Old nullifier must not be zero");
+
+    // Check old note nullifier
+    require(!nullifierHashes[_old_nullifier], "The note has been already spent");
+    nullifierHashes[_old_nullifier] = true;
+
+    if (_repay_token == weth) {
+      state.weth_borrow_amount -= int256(_repay_amt);
+    } else {
+      state.usdc_borrow_amount -= int256(_repay_amt);
+    }
+
+    emit CommitmentAdded(_new_note_hash, inserted_index);
+    emit Repay(_old_nullifier, _new_timestamp);
+  }
+
+  function withdraw(
+    bytes32 _new_note_hash,
+    bytes32 _new_will_liq_price,
+    uint256 _new_timestamp,
+    bytes32 _root,
+    bytes32 _old_nullifier,
+    uint256[2] calldata _pA,
+    uint256[2][2] calldata _pB,
+    uint256[2] calldata _pC,
+    uint256 _withdraw_amt,
+    MockToken _withdraw_token,
+    address _to
+  )
+    external
+    payable
+    nonReentrant
+    isWethOrUsdc(_withdraw_token)
+  {
+    // TODO: check _new_will_liq_price is valid from some price oracle
+
+    // Check valid timestamp
+    require(
+      _new_timestamp > block.timestamp - 5 minutes, "Invalid timestamp, must be within 5 minutes of proof generation"
+    );
+    require(_new_timestamp <= block.timestamp, "Invalid timestamp, must be in the past");
+
+    _withdraw_token.transferFrom(address(this), _to, _withdraw_amt);
+
+    // Verify proof
+    uint256[26] memory public_inputs = constructPublicInputs(
+      _new_note_hash,
+      _new_will_liq_price,
+      _new_timestamp,
+      _root,
+      _old_nullifier,
+      _withdraw_amt, // withdraw token out (to wallet)
+      0,
+      0,
+      0
+    );
+    require(verifier.verifyProof(_pA, _pB, _pC, public_inputs), "Invalid withdraw proof");
+
+    // New note commitment add to tree
+    require(!commitments[_new_note_hash], "The commitment has been submitted");
+    uint32 inserted_index = _insert(_new_note_hash);
+    commitments[_new_note_hash] = true;
+
+    // Check valid root
+    require(isKnownRoot(_root), "Cannot find your merkle root");
+
+    // Check old nullifier is not zero
+    require(_old_nullifier != bytes32(0), "Old nullifier must not be zero");
+
+    // Check old note nullifier
+    require(!nullifierHashes[_old_nullifier], "The note has been already spent");
+    nullifierHashes[_old_nullifier] = true;
+
+    if (_withdraw_token == weth) {
+      state.weth_deposit_amount -= int256(_withdraw_amt);
+    } else {
+      state.usdc_deposit_amount -= int256(_withdraw_amt);
+    }
+
+    emit CommitmentAdded(_new_note_hash, inserted_index);
+    emit Withdraw(_to, _old_nullifier, _new_timestamp);
+  }
+
+  function claim(
+    bytes32 _new_note_hash,
+    bytes32 _new_will_liq_price,
+    uint256 _new_timestamp,
+    bytes32 _root,
+    bytes32 _old_nullifier,
+    uint256[2] calldata _pA,
+    uint256[2][2] calldata _pB,
+    uint256[2] calldata _pC,
+    uint256 _claim_amt,
+    MockToken _claim_token,
+    address _to
+  )
+    external
+    payable
+    nonReentrant
+    isWethOrUsdc(_claim_token)
+  {
+    // TODO: check _new_will_liq_price is valid from some price oracle
+
+    // Check valid timestamp
+    require(
+      _new_timestamp > block.timestamp - 5 minutes, "Invalid timestamp, must be within 5 minutes of proof generation"
+    );
+    require(_new_timestamp <= block.timestamp, "Invalid timestamp, must be in the past");
+
+    _claim_token.transferFrom(address(this), _to, _claim_amt);
+
+    // Verify proof
+    uint256[26] memory public_inputs = constructPublicInputs(
+      _new_note_hash, _new_will_liq_price, _new_timestamp, _root, _old_nullifier, 0, _claim_amt, 0, 0
+    );
+    require(verifier.verifyProof(_pA, _pB, _pC, public_inputs), "Invalid claim proof");
+
+    // New note commitment add to tree
+    require(!commitments[_new_note_hash], "The commitment has been submitted");
+    uint32 inserted_index = _insert(_new_note_hash);
+    commitments[_new_note_hash] = true;
+
+    // Check valid root
+    require(isKnownRoot(_root), "Cannot find your merkle root");
+
+    // Check old nullifier is not zero
+    require(_old_nullifier != bytes32(0), "Old nullifier must not be zero");
+
+    // Check old note nullifier
+    require(!nullifierHashes[_old_nullifier], "The note has been already spent");
+    nullifierHashes[_old_nullifier] = true;
+
+    emit CommitmentAdded(_new_note_hash, inserted_index);
+    emit Withdraw(_to, _old_nullifier, _new_timestamp);
+  }
+}
