@@ -24,17 +24,19 @@ template HashMyNote() {
   hash <== h.out;
 }
 
-template AssertLTV() {
+template CheckLTV() {
   signal input LENT_AMT;
   signal input BORROW_AMT;
   signal input WILL_LIG_PRICE;
+  signal output out;
+  
   var LTV_THRESHOLD = 50;
   component cmp = LessEqThan(252);
 
   cmp.in[0] <== BORROW_AMT * 100;
   cmp.in[1] <== LTV_THRESHOLD * LENT_AMT * WILL_LIG_PRICE;
 
-  cmp.out === 1;
+  out <== cmp.out;
 }
 
 template AbsDiff() {
@@ -42,16 +44,16 @@ template AbsDiff() {
   signal input Y;
   signal output out;
 
-  var diff;
-  diff = X - Y;
+  signal diff;
+  diff <== X - Y;
 
   component geq = GreaterEqThan(252);
   geq.in[0] <== X;
   geq.in[1] <== Y;
 
   // selector boolean
-  var sel;
-  sel = geq.out; // sel = 1 if X >= Y, 0 otherwise
+  signal sel;
+  sel <== geq.out; // sel = 1 if X >= Y, 0 otherwise
 
   // enforce abs using selector
   signal posDiff;
@@ -70,18 +72,23 @@ template IsWithinPercentage() {
   signal input PERCENT;
   signal output out;
 
-  var diff;
-  var allowDiff;
-
   component absDiff = AbsDiff();
   absDiff.X <== X;
   absDiff.Y <== Y;
-  diff = absDiff.out;
+  
+  signal diff;
+  diff <== absDiff.out;
 
-  allowDiff = (PERCENT * Y) / 100;
+  // Instead of: diff <= (PERCENT * Y) / 100
+  // We use: diff * 100 <= PERCENT * Y
+  signal diffScaled;
+  signal allowDiff;
+  
+  diffScaled <== diff * 100;
+  allowDiff <== PERCENT * Y;
 
   component cmp = LessEqThan(252);
-  cmp.in[0] <== diff;
+  cmp.in[0] <== diffScaled;
   cmp.in[1] <== allowDiff;
 
   out <== cmp.out;
@@ -175,7 +182,7 @@ template IsMyPosLiquidated() {
   out <== gtZero.out;
 }
 
-template AssertNonLiquidated() {
+template CheckNonLiquidated() {
   // Inputs
   signal input myPrice;
   signal input myTime;
@@ -202,10 +209,8 @@ template AssertNonLiquidated() {
   c.lendInterestRate <== lendInterestRate;
   c.acceptablePercent <== acceptablePercent;
 
-  // Assert that the position is NOT liquidated
-  c.out === 0;
-
-  out <== c.out;
+  // Return 1 if NOT liquidated, 0 if liquidated
+  out <== 1 - c.out;
 }
 
 template AssertLiquidated() {
@@ -305,29 +310,27 @@ template UpdateAmt() {
     var ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
 
     // Step 1: compute time difference
-    var timeDiff;
-    timeDiff = CURR_TIMESTAMP - PREV_TIMESTAMP;
+    signal timeDiff;
+    timeDiff <== CURR_TIMESTAMP - PREV_TIMESTAMP;
 
     // Step 2: compute interest portion separately
     signal interestTimesDiff;
     interestTimesDiff <== INTEREST_RATE * timeDiff;
 
     // Step 3: multiply by previous amount
-    var amtTimesInterest;
-    amtTimesInterest = PREV_AMT * interestTimesDiff;
+    signal amtTimesInterest;
+    amtTimesInterest <== PREV_AMT * interestTimesDiff;
 
     // Step 4: numerator = PREV_AMT * ONE_YEAR_SECONDS + amtTimesInterest
-    var numerator;
-    numerator = PREV_AMT * ONE_YEAR_SECONDS + amtTimesInterest;
+    signal numerator;
+    numerator <== PREV_AMT * ONE_YEAR_SECONDS + amtTimesInterest;
 
-    // Step 5: temporary internal signal for the output
-    var outInternal;
-
-    // Step 6: scale equation to avoid division
-    outInternal * ONE_YEAR_SECONDS === numerator;
-
-    // Step 7: assign to actual output
-    out <== outInternal;
+    // Step 5: Compute division (witness assignment)
+    // Use <-- for unconstrained assignment of division result to witness
+    out <-- numerator / ONE_YEAR_SECONDS;
+    
+    // Step 6: Add constraint to verify the division is correct
+    out * ONE_YEAR_SECONDS === numerator;
 }
 
 // helper: enforce equality only when enabled == 1
@@ -339,7 +342,7 @@ template ConditionalEqual() {
   enabled * (a - b) === 0;
 }
 
-template Main() {
+template Main(LEVEL) {
   var BORROW_INTEREST_RATE = 5;
   var LEND_INTEREST_RATE = 2;
   var ACCEPTABLE_PERCENT = 1;
@@ -365,8 +368,8 @@ template Main() {
   signal input prev_nonce;
 
   signal input prev_hash;
-  signal input prev_index_bits[12];
-  signal input prev_hash_path[12];
+  signal input prev_index_bits[LEVEL];
+  signal input prev_hash_path[LEVEL];
 
   // liquidation array
   signal input liq_price[10];
@@ -423,11 +426,11 @@ template Main() {
   prevNullifierEq.b <== prev_nullifier;
 
   // inclusion proof always computed, but only enforced if prevExists == 1
-  component merkle = MerkleTreeInclusionProof(12);
+  component merkle = MerkleTreeInclusionProof(LEVEL);
   merkle.leaf <== prev_hash;
   merkle.root <== root;
 
-  for (var i = 0; i < 12; i++) {
+  for (var i = 0; i < LEVEL; i++) {
     merkle.pathElements[i] <== prev_hash_path[i];
     merkle.pathIndices[i] <== prev_index_bits[i];
   }
@@ -513,14 +516,16 @@ template Main() {
   (1 - wasLiquidated.out) * (1 - borrowCmp.out) === 0;
 
   // enforce LTV only in non-liquidated branch
-  component ltv = AssertLTV();
+  component ltv = CheckLTV();
   ltv.LENT_AMT <== new_lend_amt;
   ltv.BORROW_AMT <== new_borrow_amt;
   ltv.WILL_LIG_PRICE <== new_will_liq_price;
-
+  
+  // Conditionally enforce: if not liquidated, LTV must pass
+  (1 - wasLiquidated.out) * (1 - ltv.out) === 0;
 
   // ensure new note is not liquidated in non-liquidated branch
-  component newNotLiquidated = AssertNonLiquidated();
+  component newNotLiquidated = CheckNonLiquidated();
 
   // Assign scalar inputs
   newNotLiquidated.myPrice <== new_will_liq_price;
@@ -534,6 +539,9 @@ template Main() {
     newNotLiquidated.liqPrice[i] <== liq_price[i];
     newNotLiquidated.liqTime[i] <== liq_timestamp[i];
   }
+  
+  // Conditionally enforce: if not liquidated, position must not be liquidated
+  (1 - wasLiquidated.out) * (1 - newNotLiquidated.out) === 0;
 
   // -----------------------------------------------------------------
   // final new note hash
@@ -558,4 +566,4 @@ component main {public [
   borrow_token_out,
   lend_token_in,
   borrow_token_in
-]} = Main();
+]} = Main(2);
