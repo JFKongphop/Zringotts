@@ -17,6 +17,19 @@ import {ReentrancyGuard} from "./ReentrancyGuard.sol";
 import {MockToken} from "./MockToken.sol";
 import {Groth16Verifier} from "./Groth16Verifier.sol";
 
+interface IConnectOracle {
+  struct Price {
+    uint256 price;
+    uint256 timestamp;
+    uint64 height;
+    uint64 nonce;
+    uint64 decimal;
+    uint64 id;
+  }
+
+  function get_price(string memory pair_id) external view returns (Price memory);
+}
+
 interface IVerifier {
   function verifyProof(
     uint256[2] calldata _pA,
@@ -29,8 +42,16 @@ interface IVerifier {
     returns (bool);
 }
 
-contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
+contract ZringottsOracle is MerkleTreeWithHistory, ReentrancyGuard {
   IVerifier public immutable verifier;
+  IConnectOracle public immutable oracle;
+
+  // Pair IDs for the Connect Oracle (e.g. "ETH/USD", "USDC/USD")
+  string public wethPairId;
+  string public usdcPairId;
+
+  // Maximum allowed % deviation between user-supplied liq_price and oracle price (basis points, 1% = 100)
+  uint256 public constant LIQ_PRICE_MAX_DEVIATION_BPS = 2000; // 20%
 
   MockToken public weth;
   MockToken public usdc;
@@ -76,11 +97,17 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     IVerifier _verifier,
     uint32 _merkleTreeHeight,
     MockToken _weth,
-    MockToken _usdc
+    MockToken _usdc,
+    IConnectOracle _oracle,
+    string memory _wethPairId,
+    string memory _usdcPairId
   )
     MerkleTreeWithHistory(_merkleTreeHeight)
   {
     verifier = _verifier;
+    oracle = _oracle;
+    wethPairId = _wethPairId;
+    usdcPairId = _usdcPairId;
 
     // Initialize liquidated array
     for (uint256 i = 0; i < LIQUIDATED_ARRAY_NUMBER; i++) {
@@ -106,8 +133,29 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     liquidated_array[index].timestamp = _timestamp;
   }
 
+  /**
+   * @notice Validates that user-supplied liq_price is within LIQ_PRICE_MAX_DEVIATION_BPS of the oracle price.
+   * The oracle price has `decimal` digits of precision, so we normalise both to the same scale.
+   * @param _liq_price  User-supplied liquidation price (same unit as oracle price / 10^decimal)
+   * @param _token      Which token to query (weth or usdc)
+   */
+  function _validateLiqPrice(uint256 _liq_price, MockToken _token) internal view {
+    if (address(oracle) == address(0)) return; // oracle not configured — skip (local tests)
+
+    string memory pairId = (address(_token) == address(weth)) ? wethPairId : usdcPairId;
+    IConnectOracle.Price memory p = oracle.get_price(pairId);
+
+    // Normalise oracle price to same unit as _liq_price (drop the decimal places)
+    uint256 oraclePrice = p.price / (10 ** uint256(p.decimal));
+    require(oraclePrice > 0, "Oracle price unavailable");
+
+    // Require: |_liq_price - oraclePrice| / oraclePrice <= LIQ_PRICE_MAX_DEVIATION_BPS / 10000
+    uint256 diff = _liq_price > oraclePrice ? _liq_price - oraclePrice : oraclePrice - _liq_price;
+    require(diff * 10000 <= oraclePrice * LIQ_PRICE_MAX_DEVIATION_BPS, "Liquidation price too far from oracle price");
+  }
+
   modifier isWethOrUsdc(MockToken _token) {
-    require(_token == weth || _token == usdc, "Token must be weth or usdc");
+    require(address(_token) == address(weth) || address(_token) == address(usdc), "Token must be weth or usdc");
     _;
   }
 
@@ -158,7 +206,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     nonReentrant
     isWethOrUsdc(_lend_token)
   {
-    // TODO: check _new_will_liq_price is valid from some price oracle
+    _validateLiqPrice(uint256(_new_will_liq_price), _lend_token);
 
     // Check valid timestamp
     require(
@@ -195,7 +243,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
       nullifierHashes[_old_nullifier] = true;
     }
 
-    if (_lend_token == weth) {
+    if (address(_lend_token) == address(weth)) {
       state.weth_deposit_amount += int256(_lend_amt);
     } else {
       state.usdc_deposit_amount += int256(_lend_amt);
@@ -223,7 +271,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     nonReentrant
     isWethOrUsdc(_borrow_token)
   {
-    // TODO: check _new_will_liq_price is valid from some price oracle
+    _validateLiqPrice(uint256(_new_will_liq_price), _borrow_token);
 
     // Check valid timestamp
     require(
@@ -259,7 +307,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     require(!nullifierHashes[_old_nullifier], "The note has been already spent");
     nullifierHashes[_old_nullifier] = true;
 
-    if (_borrow_token == weth) {
+    if (address(_borrow_token) == address(weth)) {
       state.weth_borrow_amount += int256(_borrow_amt);
     } else {
       state.usdc_borrow_amount += int256(_borrow_amt);
@@ -286,7 +334,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     nonReentrant
     isWethOrUsdc(_repay_token)
   {
-    // TODO: check _new_will_liq_price is valid from some price oracle
+    _validateLiqPrice(uint256(_new_will_liq_price), _repay_token);
 
     // Check valid timestamp
     require(
@@ -322,7 +370,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     require(!nullifierHashes[_old_nullifier], "The note has been already spent");
     nullifierHashes[_old_nullifier] = true;
 
-    if (_repay_token == weth) {
+    if (address(_repay_token) == address(weth)) {
       state.weth_borrow_amount -= int256(_repay_amt);
     } else {
       state.usdc_borrow_amount -= int256(_repay_amt);
@@ -350,7 +398,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     nonReentrant
     isWethOrUsdc(_withdraw_token)
   {
-    // TODO: check _new_will_liq_price is valid from some price oracle
+    _validateLiqPrice(uint256(_new_will_liq_price), _withdraw_token);
 
     // Check valid timestamp
     require(
@@ -386,7 +434,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     require(!nullifierHashes[_old_nullifier], "The note has been already spent");
     nullifierHashes[_old_nullifier] = true;
 
-    if (_withdraw_token == weth) {
+    if (address(_withdraw_token) == address(weth)) {
       state.weth_deposit_amount -= int256(_withdraw_amt);
     } else {
       state.usdc_deposit_amount -= int256(_withdraw_amt);
@@ -414,7 +462,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     nonReentrant
     isWethOrUsdc(_claim_token)
   {
-    // TODO: check _new_will_liq_price is valid from some price oracle
+    _validateLiqPrice(uint256(_new_will_liq_price), _claim_token);
 
     // Check valid timestamp
     require(
