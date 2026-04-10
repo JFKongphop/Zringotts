@@ -107,7 +107,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
   }
 
   modifier isWethOrUsdc(MockToken _token) {
-    require(_token == weth || _token == usdc, "Token must be weth or usdc");
+    require(address(_token) == address(weth) || address(_token) == address(usdc), "Token must be weth or usdc");
     _;
   }
 
@@ -143,7 +143,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
 
   function deposit(
     bytes32 _new_note_hash,
-    bytes32 _new_will_liq_price,
+    bytes32,
     uint256 _new_timestamp,
     bytes32 _root,
     bytes32 _old_nullifier,
@@ -173,10 +173,10 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     uint256[26] memory public_inputs = constructPublicInputs(
       _new_note_hash,
       _root,
-      0,           // lend_token_out
-      0,           // borrow_token_out
-      _lend_amt,   // lend_token_in
-      0            // borrow_token_in
+      0, // lend_token_out
+      0, // borrow_token_out
+      _lend_amt, // lend_token_in
+      0 // borrow_token_in
     );
     require(verifier.verifyProof(_pA, _pB, _pC, public_inputs), "Invalid deposit proof");
 
@@ -195,7 +195,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
       nullifierHashes[_old_nullifier] = true;
     }
 
-    if (_lend_token == weth) {
+    if (address(_lend_token) == address(weth)) {
       state.weth_deposit_amount += int256(_lend_amt);
     } else {
       state.usdc_deposit_amount += int256(_lend_amt);
@@ -207,7 +207,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
 
   function borrow(
     bytes32 _new_note_hash,
-    bytes32 _new_will_liq_price,
+    bytes32,
     uint256 _new_timestamp,
     bytes32 _root,
     bytes32 _old_nullifier,
@@ -237,10 +237,10 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     uint256[26] memory public_inputs = constructPublicInputs(
       _new_note_hash,
       _root,
-      0,            // lend_token_out
-      0,            // borrow_token_out
-      0,            // lend_token_in
-      _borrow_amt   // borrow_token_in
+      0, // lend_token_out
+      0, // borrow_token_out
+      0, // lend_token_in
+      _borrow_amt // borrow_token_in
     );
     require(verifier.verifyProof(_pA, _pB, _pC, public_inputs), "Invalid borrow proof");
 
@@ -259,7 +259,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     require(!nullifierHashes[_old_nullifier], "The note has been already spent");
     nullifierHashes[_old_nullifier] = true;
 
-    if (_borrow_token == weth) {
+    if (address(_borrow_token) == address(weth)) {
       state.weth_borrow_amount += int256(_borrow_amt);
     } else {
       state.usdc_borrow_amount += int256(_borrow_amt);
@@ -271,7 +271,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
 
   function repay(
     bytes32 _new_note_hash,
-    bytes32 _new_will_liq_price,
+    bytes32,
     uint256 _new_timestamp,
     bytes32 _root,
     bytes32 _old_nullifier,
@@ -300,10 +300,10 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     uint256[26] memory public_inputs = constructPublicInputs(
       _new_note_hash,
       _root,
-      0,           // lend_token_out
-      _repay_amt,  // borrow_token_out (repaying borrow)
-      0,           // lend_token_in
-      0            // borrow_token_in
+      0, // lend_token_out
+      _repay_amt, // borrow_token_out (repaying borrow)
+      0, // lend_token_in
+      0 // borrow_token_in
     );
     require(verifier.verifyProof(_pA, _pB, _pC, public_inputs), "Invalid repay proof");
 
@@ -322,7 +322,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     require(!nullifierHashes[_old_nullifier], "The note has been already spent");
     nullifierHashes[_old_nullifier] = true;
 
-    if (_repay_token == weth) {
+    if (address(_repay_token) == address(weth)) {
       state.weth_borrow_amount -= int256(_repay_amt);
     } else {
       state.usdc_borrow_amount -= int256(_repay_amt);
@@ -365,9 +365,9 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
       _new_note_hash,
       _root,
       _withdraw_amt, // lend_token_out (withdrawing deposit)
-      0,             // borrow_token_out
-      0,             // lend_token_in
-      0              // borrow_token_in
+      0, // borrow_token_out
+      0, // lend_token_in
+      0 // borrow_token_in
     );
     require(verifier.verifyProof(_pA, _pB, _pC, public_inputs), "Invalid withdraw proof");
 
@@ -428,10 +428,10 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     uint256[26] memory public_inputs = constructPublicInputs(
       _new_note_hash,
       _root,
-      0,           // lend_token_out
-      _claim_amt,  // borrow_token_out (claiming liquidation)
-      0,           // lend_token_in
-      0            // borrow_token_in
+      0, // lend_token_out
+      _claim_amt, // borrow_token_out (claiming liquidation)
+      0, // lend_token_in
+      0 // borrow_token_in
     );
     require(verifier.verifyProof(_pA, _pB, _pC, public_inputs), "Invalid claim proof");
 
