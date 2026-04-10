@@ -334,7 +334,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
 
   function withdraw(
     bytes32 _new_note_hash,
-    bytes32 _new_will_liq_price,
+    bytes32,
     uint256 _new_timestamp,
     bytes32 _root,
     bytes32 _old_nullifier,
@@ -386,7 +386,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
     require(!nullifierHashes[_old_nullifier], "The note has been already spent");
     nullifierHashes[_old_nullifier] = true;
 
-    if (_withdraw_token == weth) {
+    if (address(_withdraw_token) == address(weth)) {
       state.weth_deposit_amount -= int256(_withdraw_amt);
     } else {
       state.usdc_deposit_amount -= int256(_withdraw_amt);
@@ -398,7 +398,7 @@ contract Zringotts is MerkleTreeWithHistory, ReentrancyGuard {
 
   function claim(
     bytes32 _new_note_hash,
-    bytes32 _new_will_liq_price,
+    bytes32,
     uint256 _new_timestamp,
     bytes32 _root,
     bytes32 _old_nullifier,
