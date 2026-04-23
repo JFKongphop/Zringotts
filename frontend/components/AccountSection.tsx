@@ -9,7 +9,7 @@ import {
   WETH_ADDRESS, USDC_ADDRESS, ZRINGOTTS_ADDRESS,
   ERC20_ABI, ZRINGOTTS_ABI,
 } from '@/lib/contracts';
-import { formatBalance } from '@/lib/utils';
+import { formatBalance, switchToInitiaNetwork } from '@/lib/utils';
 
 const BRIDGE_DENOM = process.env.NEXT_PUBLIC_INTERWOVEN_BRIDGE_DENOM ?? 'uinit';
 
@@ -27,6 +27,9 @@ export function AccountSection() {
     if (!address) return;
     setMinting(token);
     try {
+      // Switch to Initia network
+      await switchToInitiaNetwork();
+      
       const tokenAddress = token === 'weth' ? WETH_ADDRESS : USDC_ADDRESS;
       const amount = token === 'weth' ? parseUnits('1', 18) : parseUnits('1000', 6);
       await writeContractAsync({

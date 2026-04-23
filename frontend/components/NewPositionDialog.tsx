@@ -7,6 +7,7 @@ import { WETH_ADDRESS, USDC_ADDRESS, ZRINGOTTS_ADDRESS, ERC20_ABI, ZRINGOTTS_ABI
 import { useTokenBalances } from '@/hooks/useTokenBalances';
 import { usePositionStore } from '@/hooks/usePositionStore';
 import { generateDepositProof } from '@/lib/zkproof';
+import { switchToInitiaNetwork } from '@/lib/utils';
 
 interface Props {
   open: boolean;
@@ -46,6 +47,9 @@ export function NewPositionDialog({ open, onClose }: Props) {
     setErrorMsg('');
 
     try {
+      // 0. Switch to Initia network in MetaMask
+      await switchToInitiaNetwork();
+
       const depositParsed = parseUnits(depositAmt, depositDecimals);
 
       // 1. Approve ERC-20 transfer

@@ -6,13 +6,14 @@ import { parseUnits, toHex, padHex } from 'viem';
 import { WETH_ADDRESS, USDC_ADDRESS, ZRINGOTTS_ADDRESS, ERC20_ABI, ZRINGOTTS_ABI } from '@/lib/contracts';
 import { useTokenBalances } from '@/hooks/useTokenBalances';
 import { usePositionStore, Position } from '@/hooks/usePositionStore';
-import { generateRepayProof, generateWithdrawProof, ZKNote, INITIAL_ROOT } from '@/lib/zkproof';
+import { generateBorrowProof, generateRepayProof, generateWithdrawProof, ZKNote, INITIAL_ROOT } from '@/lib/zkproof';
+import { switchToInitiaNetwork } from '@/lib/utils';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   position: Position | null;
-  action: 'repay' | 'withdraw';
+  action: 'borrow' | 'repay' | 'withdraw';
 }
 
 type Token = 'WETH' | 'USDC';
@@ -43,14 +44,20 @@ export function RepayWithdrawDialog({ open, onClose, position, action }: Props) 
 
   if (!open || !position) return null;
 
+  const isBorrow = action === 'borrow';
   const isRepay = action === 'repay';
-  const token = isRepay ? position.borrowToken : position.depositToken;
+  const isWithdraw = action === 'withdraw';
+  
+  // For borrow: borrow in position.borrowToken, for repay: repay borrowToken, for withdraw: withdraw depositToken
+  const token = (isBorrow || isRepay) ? position.borrowToken : position.depositToken;
   const tokenDecimals = token === 'WETH' ? 18 : 6;
   const tokenAddress = (t: Token) => t === 'WETH' ? WETH_ADDRESS : USDC_ADDRESS;
 
   const maxAmount = isRepay 
     ? Number(position.borrowAmount) / (10 ** tokenDecimals)
-    : Number(position.depositAmount) / (10 ** tokenDecimals);
+    : isWithdraw
+    ? Number(position.depositAmount) / (10 ** tokenDecimals)
+    : 0; // For borrow, calculated based on LTV
 
   async function handleSubmit() {
     if (!address || !amount || !position.note) {
@@ -63,6 +70,9 @@ export function RepayWithdrawDialog({ open, onClose, position, action }: Props) 
     setErrorMsg('');
 
     try {
+      // Switch to Initia network
+      await switchToInitiaNetwork();
+
       const parsedAmt = parseUnits(amount, tokenDecimals);
       const oldNote = position.note as unknown as ZKNote;
 
@@ -87,15 +97,15 @@ export function RepayWithdrawDialog({ open, onClose, position, action }: Props) 
       const liqTimes = flat.filter((_, i) => i % 2 !== 0);
 
       // Simplified: assume position is at index 0 with empty sibling path
-      // In production, you'd track actual merkle indices and compute paths
       const merkleRoot = currentRoot ? BigInt(currentRoot as string) : INITIAL_ROOT;
       const merkleIndex = 0;
       const merklePath = [0n, BigInt('14744269619966411208579211824598458697587494354926760081771325075741142829156')];
 
-      // Calculate new liquidation price (keep same or 0 if no remaining debt)
-      const willLiqPrice = 0n; // Simplified: use 0 (will be validated by oracle within 20% tolerance)
+      const willLiqPrice = 0n; // Simplified
 
-      const proofResult = isRepay
+      const proofResult = isBorrow
+        ? await generateBorrowProof(oldNote, parsedAmt, willLiqPrice, merkleRoot, merkleIndex, merklePath, liqPrices, liqTimes)
+        : isRepay
         ? await generateRepayProof(oldNote, parsedAmt, willLiqPrice, merkleRoot, merkleIndex, merklePath, liqPrices, liqTimes)
         : await generateWithdrawProof(oldNote, parsedAmt, willLiqPrice, merkleRoot, merkleIndex, merklePath, liqPrices, liqTimes);
 
@@ -108,7 +118,26 @@ export function RepayWithdrawDialog({ open, onClose, position, action }: Props) 
       // Compute old nullifier hash = Poseidon(nullifier) - simplified, just use nullifier for demo
       const oldNullifierBytes32 = padHex(toHex(oldNote.nullifier), { size: 32 });
 
-      if (isRepay) {
+      if (isBorrow) {
+        await writeContractAsync({
+          address: ZRINGOTTS_ADDRESS as `0x${string}`,
+          abi: ZRINGOTTS_ABI,
+          functionName: 'borrow',
+          args: [
+            noteHashBytes32,
+            willLiqPriceBytes32,
+            proofResult.timestamp,
+            rootBytes32,
+            oldNullifierBytes32,
+            [proofResult.pA[0], proofResult.pA[1]] as [bigint, bigint],
+            proofResult.pB as [[bigint, bigint], [bigint, bigint]],
+            [proofResult.pC[0], proofResult.pC[1]] as [bigint, bigint],
+            parsedAmt,
+            tokenAddress(token) as `0x${string}`,
+            address,
+          ],
+        });
+      } else if (isRepay) {
         await writeContractAsync({
           address: ZRINGOTTS_ADDRESS as `0x${string}`,
           abi: ZRINGOTTS_ABI,
@@ -211,14 +240,14 @@ export function RepayWithdrawDialog({ open, onClose, position, action }: Props) 
         </button>
 
         <p className="panel-title" style={{ marginBottom: 24 }}>
-          {isRepay ? 'Repay Debt' : 'Withdraw Collateral'}
+          {isBorrow ? 'Borrow' : isRepay ? 'Repay Debt' : 'Withdraw Collateral'}
         </p>
 
         {step === 'done' ? (
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
             <p style={{ fontSize: 16, fontWeight: 500, marginBottom: 8 }}>
-              {isRepay ? 'Repayment Complete!' : 'Withdrawal Complete!'}
+              {isBorrow ? 'Borrow Complete!' : isRepay ? 'Repayment Complete!' : 'Withdrawal Complete!'}
             </p>
             <p className="label" style={{ color: 'var(--text-dim)', marginBottom: 20 }}>
               Your position has been updated with a new ZK commitment.
@@ -259,9 +288,16 @@ export function RepayWithdrawDialog({ open, onClose, position, action }: Props) 
                   Max
                 </button>
               </div>
-              <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
-                Max: {maxAmount.toFixed(tokenDecimals === 18 ? 4 : 2)} {token}
-              </p>
+              {!isBorrow && (
+                <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
+                  Max: {maxAmount.toFixed(tokenDecimals === 18 ? 4 : 2)} {token}
+                </p>
+              )}
+              {isBorrow && (
+                <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
+                  Based on 75% LTV ratio
+                </p>
+              )}
             </div>
 
             {step === 'error' && (
@@ -282,13 +318,13 @@ export function RepayWithdrawDialog({ open, onClose, position, action }: Props) 
             <button
               className="btn-primary"
               style={{ width: '100%' }}
-              disabled={!amount || Number(amount) <= 0 || Number(amount) > maxAmount || (step !== 'input' && step !== 'error')}
+              disabled={!amount || Number(amount) <= 0 || (!isBorrow && Number(amount) > maxAmount) || (step !== 'input' && step !== 'error')}
               onClick={handleSubmit}
             >
               {step === 'approving' ? 'Approving…' :
                step === 'proving' ? 'Generating proof…' :
                step === 'submitting' ? 'Submitting…' :
-               isRepay ? 'Repay' : 'Withdraw'}
+               isBorrow ? 'Borrow' : isRepay ? 'Repay' : 'Withdraw'}
             </button>
 
             {step === 'proving' && (

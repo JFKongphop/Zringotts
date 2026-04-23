@@ -11,7 +11,7 @@ export function PositionSection() {
   const { isConnected } = useAccount();
   const { positions } = usePositionStore();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [actionDialog, setActionDialog] = useState<{ open: boolean; position: Position | null; action: 'repay' | 'withdraw' }>({
+  const [actionDialog, setActionDialog] = useState<{ open: boolean; position: Position | null; action: 'borrow' | 'repay' | 'withdraw' }>({
     open: false,
     position: null,
     action: 'repay',
@@ -55,6 +55,7 @@ export function PositionSection() {
                 key={i}
                 position={pos}
                 index={i}
+                onBorrow={() => setActionDialog({ open: true, position: pos, action: 'borrow' })}
                 onRepay={() => setActionDialog({ open: true, position: pos, action: 'repay' })}
                 onWithdraw={() => setActionDialog({ open: true, position: pos, action: 'withdraw' })}
               />
@@ -77,11 +78,13 @@ export function PositionSection() {
 function PositionCard({
   position,
   index,
+  onBorrow,
   onRepay,
   onWithdraw,
 }: {
   position: Position;
   index: number;
+  onBorrow: () => void;
   onRepay: () => void;
   onWithdraw: () => void;
 }) {
@@ -135,6 +138,13 @@ function PositionCard({
           </span>
           {position.status === 'active' && (
             <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                className="btn-ghost"
+                style={{ fontSize: 11, padding: '4px 10px' }}
+                onClick={onBorrow}
+              >
+                Borrow
+              </button>
               {Number(position.borrowAmount) > 0 && (
                 <button
                   className="btn-ghost"
