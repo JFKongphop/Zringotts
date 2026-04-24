@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useAccount, useWriteContract, useReadContract } from 'wagmi';
+import { useAccount, useWriteContract, useReadContract, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
 import { parseUnits, toHex, padHex } from 'viem';
 import { WETH_ADDRESS, USDC_ADDRESS, ZRINGOTTS_ADDRESS, ERC20_ABI, ZRINGOTTS_ABI } from '@/lib/contracts';
 import { useTokenBalances } from '@/hooks/useTokenBalances';
@@ -21,6 +21,7 @@ export function NewPositionDialog({ open, onClose }: Props) {
   const { weth, usdc, refetch } = useTokenBalances();
   const { addPosition } = usePositionStore();
   const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
 
   const [depositToken, setDepositToken] = useState<Token>('WETH');
   const [depositAmt, setDepositAmt] = useState('');
@@ -82,7 +83,7 @@ export function NewPositionDialog({ open, onClose }: Props) {
       // willLiqPrice for deposit-only (no borrow yet) can be 0
       const willLiqPriceBytes32 = padHex(toHex(proofResult.note.willLiqPrice), { size: 32 });
 
-      await writeContractAsync({
+      const txHash = await writeContractAsync({
         address: ZRINGOTTS_ADDRESS as `0x${string}`,
         abi: ZRINGOTTS_ABI,
         functionName: 'deposit',
@@ -100,6 +101,47 @@ export function NewPositionDialog({ open, onClose }: Props) {
         ],
       });
 
+      console.log('[NewPositionDialog] Transaction hash:', txHash);
+      console.log('[NewPositionDialog] Waiting for transaction receipt...');
+      
+      // Wait for transaction to be mined and check if it succeeded
+      if (!publicClient) throw new Error('Public client not available');
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      
+      console.log('[NewPositionDialog] Transaction receipt:', receipt);
+      console.log('[NewPositionDialog] Transaction status:', receipt.status);
+      
+      if (receipt.status !== 'success') {
+        throw new Error(`Transaction reverted! Check transaction: ${txHash}`);
+      }
+
+      // Parse CommitmentAdded event to get the merkle index
+      // Event: CommitmentAdded(bytes32 indexed commitment, uint32 indexed leafIndex)
+      const COMMITMENT_ADDED_SIG = '0x12bc1b1892df9b3d59874d647be2cef182be9c84524d357d59dbb7dc561f6843';
+      const commitmentAddedEvent = receipt.logs.find(
+        (log) => log.topics[0] === COMMITMENT_ADDED_SIG
+      );
+      
+      // For CommitmentAdded(bytes32 indexed commitment, uint32 indexed leafIndex)
+      // Topic 0: event signature
+      // Topic 1: commitment (indexed)
+      // Topic 2: leafIndex (indexed uint32, padded to bytes32)
+      let merkleIndex = 0;
+      if (commitmentAddedEvent && commitmentAddedEvent.topics[2]) {
+        // Extract uint32 from indexed bytes32 topic
+        merkleIndex = Number(BigInt(commitmentAddedEvent.topics[2]));
+        console.log('[NewPositionDialog] Parsed merkle index from event:', merkleIndex);
+      } else {
+        console.warn('[NewPositionDialog] Could not parse CommitmentAdded event, using nextIndex from contract');
+        // Fallback: query nextIndex-1 from contract
+        const nextIdx = await publicClient.readContract({
+          address: ZRINGOTTS_ADDRESS as `0x${string}`,
+          abi: ZRINGOTTS_ABI,
+          functionName: 'nextIndex',
+        }) as number;
+        merkleIndex = nextIdx - 1;
+      }
+
       // 4. Store note locally (needed to spend it later)
       const commitment = noteHashBytes32;
       addPosition({
@@ -108,6 +150,7 @@ export function NewPositionDialog({ open, onClose }: Props) {
         borrowToken,
         borrowAmount: '0',
         commitment,
+        merkleIndex, // Store the actual Merkle tree index
         createdAt: Date.now(),
         status: 'active',
         note: {
@@ -117,6 +160,7 @@ export function NewPositionDialog({ open, onClose }: Props) {
           timestamp:    proofResult.note.timestamp.toString(),
           nullifier:    proofResult.note.nullifier.toString(),
           nonce:        proofResult.note.nonce.toString(),
+          noteHash:     proofResult.note.noteHash.toString(),
         },
       });
 

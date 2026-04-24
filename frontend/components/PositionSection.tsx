@@ -9,7 +9,7 @@ import { formatBalance } from '@/lib/utils';
 
 export function PositionSection() {
   const { isConnected } = useAccount();
-  const { positions } = usePositionStore();
+  const { positions, clearPositions } = usePositionStore();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [actionDialog, setActionDialog] = useState<{ open: boolean; position: Position | null; action: 'borrow' | 'repay' | 'withdraw' }>({
     open: false,
@@ -33,9 +33,23 @@ export function PositionSection() {
       <div className="glass" style={{ padding: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <p className="panel-title" style={{ marginBottom: 0 }}>Your Positions</p>
-          <button className="btn-primary" style={{ fontSize: 13, padding: '8px 16px' }} onClick={() => setDialogOpen(true)}>
-            + New Position
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button 
+              className="btn-ghost" 
+              style={{ fontSize: 13, padding: '8px 12px', color: 'var(--danger)' }} 
+              onClick={() => {
+                if (confirm('Clear all position data from localStorage?')) {
+                  clearPositions();
+                }
+              }}
+              title="Clear all positions from localStorage"
+            >
+              🗑️
+            </button>
+            <button className="btn-primary" style={{ fontSize: 13, padding: '8px 16px' }} onClick={() => setDialogOpen(true)}>
+              + New Position
+            </button>
+          </div>
         </div>
 
         {positions.length === 0 ? (
@@ -44,9 +58,22 @@ export function PositionSection() {
             <p className="label" style={{ color: 'var(--text-dim)', marginBottom: 16 }}>
               No positions yet. Deposit collateral to get started.
             </p>
-            <button className="btn-ghost" style={{ fontSize: 13 }} onClick={() => setDialogOpen(true)}>
-              Open First Position
-            </button>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button className="btn-ghost" style={{ fontSize: 13 }} onClick={() => setDialogOpen(true)}>
+                Open First Position
+              </button>
+              <button 
+                className="btn-ghost" 
+                style={{ fontSize: 13, color: 'var(--danger)' }} 
+                onClick={() => {
+                  if (confirm('Clear all position data from localStorage?')) {
+                    clearPositions();
+                  }
+                }}
+              >
+                🗑️ Clear Positions
+              </button>
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
