@@ -1,11 +1,11 @@
 export const ZRINGOTTS_ADDRESS =
-  (process.env.NEXT_PUBLIC_ZRINGOTTS_ADDRESS ?? '0xdEF586E63Cf2f20cBE9F055b738Cd4CEDA273900') as `0x${string}`;
+  (process.env.NEXT_PUBLIC_ZRINGOTTS_ADDRESS ?? '0x510BF2877a200b5aE58a327A442638817B88C5dE') as `0x${string}`;
 
 export const WETH_ADDRESS =
-  (process.env.NEXT_PUBLIC_WETH_ADDRESS ?? '0xF335a9B58f2AA6A2f884d2dA4E308F7378A4CF7e') as `0x${string}`;
+  (process.env.NEXT_PUBLIC_WETH_ADDRESS ?? '0xc5a4BCea0AB9f86CA1b1502aB9D7b3224EB221ea') as `0x${string}`;
 
 export const USDC_ADDRESS =
-  (process.env.NEXT_PUBLIC_USDC_ADDRESS ?? '0x4b8e385427b5bA8ABf900c1bE41A425Df3aB2A94') as `0x${string}`;
+  (process.env.NEXT_PUBLIC_USDC_ADDRESS ?? '0xCBA2A1554C350AEcaA311917aEf0F7C266600BdA') as `0x${string}`;
 
 export const ERC20_ABI = [
   {
@@ -70,6 +70,29 @@ export const ZRINGOTTS_ABI = [
     outputs: [{ name: '', type: 'uint256[]' }],
     stateMutability: 'view',
     type: 'function',
+  },
+  {
+    inputs: [{ name: '', type: 'bytes32' }],
+    name: 'commitments',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: '_root', type: 'bytes32' }],
+    name: 'isKnownRoot',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: 'commitment', type: 'bytes32' },
+      { indexed: true, name: 'leafIndex', type: 'uint32' },
+    ],
+    name: 'CommitmentAdded',
+    type: 'event',
   },
   {
     inputs: [

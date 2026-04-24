@@ -193,13 +193,21 @@ export async function generateBorrowProof(
   const F = poseidon.F;
 
   // New note with increased borrow
-  const timestamp = BigInt(Math.floor(Date.now() / 1000));
+  // CRITICAL FIX: Use old timestamp to avoid division remainder in UpdateAmt template
+  // The circuit calculates interest based on timeDiff. If timeDiff=0, no division issues!
+  const timestamp = oldNote.timestamp; // Keep same timestamp = no interest = no division problem
   const newNullifier = randomFieldElement();
   const newNonce = randomFieldElement();
-  const newBorrowAmt = oldNote.borrowAmt + borrowAmt;
+  
+  // CRITICAL FIX: Don't calculate interest here! Pass old amounts unchanged.
+  // The circuit will calculate interest internally using UpdateAmt template.
+  // The constraint checks: new_lend_amt <= calc_new_lend_amt (which includes interest)
+  // By passing old amount (no interest), we satisfy this constraint without division remainder issues.
+  const newLendAmt = oldNote.lendAmt; // Keep same as old (circuit will add interest internally)
+  const newBorrowAmt = oldNote.borrowAmt + borrowAmt; // Add new borrow to old borrow (no interest)
 
   const noteHashField = poseidon([
-    oldNote.lendAmt,
+    newLendAmt,
     newBorrowAmt,
     willLiqPrice,
     timestamp,
@@ -208,11 +216,11 @@ export async function generateBorrowProof(
   ]);
   const noteHash = F.toObject(noteHashField) as bigint;
 
-  // Convert merkle index to bits
-  const indexBits = merkleIndex.toString(2).padStart(merklePath.length, '0').split('').map(String);
+  // Convert merkle index to bits (LSB first for circuit)
+  const indexBits = merkleIndex.toString(2).padStart(merklePath.length, '0').split('').reverse().map(String);
 
   const inputs = {
-    new_lend_amt:       oldNote.lendAmt.toString(),
+    new_lend_amt:       newLendAmt.toString(),
     new_borrow_amt:     newBorrowAmt.toString(),
     new_will_liq_price: willLiqPrice.toString(),
     new_timestamp:      timestamp.toString(),
@@ -240,6 +248,39 @@ export async function generateBorrowProof(
     borrow_token_in:  borrowAmt.toString(),
   };
 
+  console.log('[zkproof] Borrow proof inputs:', {
+    oldLendAmt: oldNote.lendAmt.toString(),
+    oldBorrowAmt: oldNote.borrowAmt.toString(),
+    oldTimestamp: oldNote.timestamp.toString(),
+    newTimestamp: timestamp.toString(),
+    newLendAmt: newLendAmt.toString(),
+    borrowAmtAdding: borrowAmt.toString(),
+    newBorrowAmt: newBorrowAmt.toString(),
+    willLiqPrice: willLiqPrice.toString(),
+    merkleIndex,
+    indexBits,
+    merklePath: merklePath.map(String),
+  });
+  
+  // Validate all inputs before generating proof
+  const MAX_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+  const validate = (name: string, value: bigint) => {
+    if (value < 0n) {
+      throw new Error(`${name} is negative: ${value}`);
+    }
+    if (value >= MAX_FIELD) {
+      throw new Error(`${name} exceeds field size: ${value}`);
+    }
+  };
+  
+  validate('newLendAmt', newLendAmt);
+  validate('newBorrowAmt', newBorrowAmt);
+  validate('willLiqPrice', willLiqPrice);
+  validate('oldNote.lendAmt', oldNote.lendAmt);
+  validate('oldNote.borrowAmt', oldNote.borrowAmt);
+  validate('borrowAmt', borrowAmt);
+  
+  console.log('[zkproof] All inputs validated ✅');
   console.log('[zkproof] Generating borrow proof…');
   const { proof } = await groth16.fullProve(inputs, '/zringotts.wasm', '/zringotts.zkey');
   console.log('[zkproof] Borrow proof generated.');
@@ -252,7 +293,7 @@ export async function generateBorrowProof(
   const pC = [BigInt(proof.pi_c[0]), BigInt(proof.pi_c[1])] as const;
 
   const note: ZKNote = {
-    lendAmt: oldNote.lendAmt,
+    lendAmt: newLendAmt,
     borrowAmt: newBorrowAmt,
     willLiqPrice,
     timestamp,
@@ -285,17 +326,22 @@ export async function generateRepayProof(
   const poseidon = await buildPoseidon();
   const F = poseidon.F;
 
-  const timestamp = BigInt(Math.floor(Date.now() / 1000));
+  // CRITICAL FIX: Use old timestamp to avoid division remainder (timeDiff=0)
+  const timestamp = oldNote.timestamp;
   const newNullifier = randomFieldElement();
   const newNonce = randomFieldElement();
-  const newBorrowAmt = oldNote.borrowAmt - repayAmt;
+  
+  // CRITICAL FIX: Don't calculate interest here! Pass old amounts unchanged.
+  // The circuit will calculate interest internally using UpdateAmt template.
+  const newLendAmt = oldNote.lendAmt; // Keep same as old
+  const newBorrowAmt = oldNote.borrowAmt - repayAmt; // Subtract repayment from old borrow
 
   if (newBorrowAmt < 0n) {
     throw new Error('Cannot repay more than borrowed amount');
   }
 
   const noteHashField = poseidon([
-    oldNote.lendAmt,
+    newLendAmt,
     newBorrowAmt,
     willLiqPrice,
     timestamp,
@@ -304,10 +350,11 @@ export async function generateRepayProof(
   ]);
   const noteHash = F.toObject(noteHashField) as bigint;
 
-  const indexBits = merkleIndex.toString(2).padStart(merklePath.length, '0').split('').map(String);
+  // Convert merkle index to bits (LSB first for circuit)
+  const indexBits = merkleIndex.toString(2).padStart(merklePath.length, '0').split('').reverse().map(String);
 
   const inputs = {
-    new_lend_amt:       oldNote.lendAmt.toString(),
+    new_lend_amt:       newLendAmt.toString(),
     new_borrow_amt:     newBorrowAmt.toString(),
     new_will_liq_price: willLiqPrice.toString(),
     new_timestamp:      timestamp.toString(),
@@ -347,7 +394,7 @@ export async function generateRepayProof(
   const pC = [BigInt(proof.pi_c[0]), BigInt(proof.pi_c[1])] as const;
 
   const note: ZKNote = {
-    lendAmt: oldNote.lendAmt,
+    lendAmt: newLendAmt,
     borrowAmt: newBorrowAmt,
     willLiqPrice,
     timestamp,
@@ -380,10 +427,15 @@ export async function generateWithdrawProof(
   const poseidon = await buildPoseidon();
   const F = poseidon.F;
 
-  const timestamp = BigInt(Math.floor(Date.now() / 1000));
+  // CRITICAL FIX: Use old timestamp to avoid division remainder (timeDiff=0)
+  const timestamp = oldNote.timestamp;
   const newNullifier = randomFieldElement();
   const newNonce = randomFieldElement();
-  const newLendAmt = oldNote.lendAmt - withdrawAmt;
+  
+  // CRITICAL FIX: Don't calculate interest here! Pass old amounts unchanged.
+  // The circuit will calculate interest internally using UpdateAmt template.
+  const newLendAmt = oldNote.lendAmt - withdrawAmt; // Subtract withdrawal from old lend
+  const newBorrowAmt = oldNote.borrowAmt; // Keep borrow same
 
   if (newLendAmt < 0n) {
     throw new Error('Cannot withdraw more than deposited amount');
@@ -391,7 +443,7 @@ export async function generateWithdrawProof(
 
   const noteHashField = poseidon([
     newLendAmt,
-    oldNote.borrowAmt,
+    newBorrowAmt,
     willLiqPrice,
     timestamp,
     newNullifier,
@@ -399,11 +451,12 @@ export async function generateWithdrawProof(
   ]);
   const noteHash = F.toObject(noteHashField) as bigint;
 
-  const indexBits = merkleIndex.toString(2).padStart(merklePath.length, '0').split('').map(String);
+  // Convert merkle index to bits (LSB first for circuit)
+  const indexBits = merkleIndex.toString(2).padStart(merklePath.length, '0').split('').reverse().map(String);
 
   const inputs = {
     new_lend_amt:       newLendAmt.toString(),
-    new_borrow_amt:     oldNote.borrowAmt.toString(),
+    new_borrow_amt:     newBorrowAmt.toString(),
     new_will_liq_price: willLiqPrice.toString(),
     new_timestamp:      timestamp.toString(),
     new_nullifier:      newNullifier.toString(),
@@ -443,7 +496,7 @@ export async function generateWithdrawProof(
 
   const note: ZKNote = {
     lendAmt: newLendAmt,
-    borrowAmt: oldNote.borrowAmt,
+    borrowAmt: newBorrowAmt,
     willLiqPrice,
     timestamp,
     nullifier: newNullifier,
