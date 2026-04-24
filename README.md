@@ -20,7 +20,7 @@ Zringotts is a decentralized lending platform that uses Zero-Knowledge Proofs (Z
   - Browser-based proof generation using snarkjs (15-30 second proving time)
   - Multi-position support with automatic Merkle tree reconstruction from blockchain events
 
-- **The Native Feature**: Interwoven Bridge integration enables seamless cross-chain asset transfers. Users can bridge assets from other chains into the Initia ecosystem and immediately use them as collateral in Zringotts, creating a unified liquidity experience across the Interwoven network.
+- **The Native Feature**: **InterwovenKit Integration** - The frontend uses InterwovenKit for wallet connection and transaction management, providing users with the native Initia Wallet experience. This includes seamless wallet connectivity using `initiaPrivyWalletConnector`, integrated access to Interwoven Bridge functionality for cross-chain transfers, and a unified interface for managing assets across the Initia ecosystem. Users can connect their Initia Wallet, send EVM transactions, and access bridge functionality all through the InterwovenKit provider.
 
 ---
 
@@ -178,8 +178,9 @@ contract Zringotts {
 
 **Tech Stack:**
 - Next.js 15.5.15
-- Wagmi 2.x (wallet connection)
-- Viem (Ethereum interactions)
+- **InterwovenKit 2.x** (Initia Wallet integration)
+- Wagmi 2.x (EVM interactions with initiaPrivyWalletConnector)
+- Viem (Ethereum utilities)
 - snarkjs (browser-based proof generation)
 - circomlibjs (Poseidon hashing)
 
@@ -190,6 +191,8 @@ contract Zringotts {
 - `lib/zkproof.ts`: ZK proof generation logic
 - `lib/merkle.ts`: Merkle tree reconstruction from events
 - `lib/contracts.ts`: Contract ABIs and addresses
+- `lib/wagmi.ts`: Wagmi config with initiaPrivyWalletConnector
+- `app/providers.tsx`: InterwovenKitProvider setup
 
 ---
 

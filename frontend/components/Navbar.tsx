@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { useAccount, useConnect, useDisconnect } from 'wagmi';
-import { injected } from 'wagmi/connectors';
+import { useAccount, useDisconnect } from 'wagmi';
 import { useInterwovenKit } from '@initia/interwovenkit-react';
 import { shorten } from '@/lib/utils';
 
@@ -12,9 +11,8 @@ export function Navbar() {
   useEffect(() => { setMounted(true); }, []);
 
   const { address, isConnected } = useAccount();
-  const { connect }              = useConnect();
   const { disconnect }           = useDisconnect();
-  const { openWallet }           = useInterwovenKit();
+  const { openWallet, openConnect } = useInterwovenKit();
 
   return (
     <nav className="nav-pill">
@@ -60,7 +58,7 @@ export function Navbar() {
               borderRadius: 100, padding: '5px 14px',
               cursor: 'pointer', fontFamily: 'var(--font-sans)', fontWeight: 500,
             }}
-            onClick={() => connect({ connector: injected() })}
+            onClick={() => openConnect()}
           >
             Connect
           </button>

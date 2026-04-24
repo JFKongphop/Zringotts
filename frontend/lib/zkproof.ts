@@ -136,18 +136,18 @@ export async function generateDepositProof(
   console.log('[zkproof] Proof generated.', { publicSignals });
 
   // --- Format for Solidity (pB coordinates are reversed per BN128 convention) ---
-  const pA: readonly [bigint, bigint] = [
+  const pA: [bigint, bigint] = [
     BigInt(proof.pi_a[0]),
     BigInt(proof.pi_a[1]),
-  ] as const;
-  const pB: readonly [[bigint, bigint], [bigint, bigint]] = [
+  ];
+  const pB: [[bigint, bigint], [bigint, bigint]] = [
     [BigInt(proof.pi_b[0][1]), BigInt(proof.pi_b[0][0])],
     [BigInt(proof.pi_b[1][1]), BigInt(proof.pi_b[1][0])],
-  ] as const;
-  const pC: readonly [bigint, bigint] = [
+  ];
+  const pC: [bigint, bigint] = [
     BigInt(proof.pi_c[0]),
     BigInt(proof.pi_c[1]),
-  ] as const;
+  ];
 
   const note: ZKNote = {
     lendAmt,
@@ -285,12 +285,12 @@ export async function generateBorrowProof(
   const { proof } = await groth16.fullProve(inputs, '/zringotts.wasm', '/zringotts.zkey');
   console.log('[zkproof] Borrow proof generated.');
 
-  const pA = [BigInt(proof.pi_a[0]), BigInt(proof.pi_a[1])] as const;
-  const pB = [
+  const pA: [bigint, bigint] = [BigInt(proof.pi_a[0]), BigInt(proof.pi_a[1])];
+  const pB: [[bigint, bigint], [bigint, bigint]] = [
     [BigInt(proof.pi_b[0][1]), BigInt(proof.pi_b[0][0])],
     [BigInt(proof.pi_b[1][1]), BigInt(proof.pi_b[1][0])],
-  ] as const;
-  const pC = [BigInt(proof.pi_c[0]), BigInt(proof.pi_c[1])] as const;
+  ];
+  const pC: [bigint, bigint] = [BigInt(proof.pi_c[0]), BigInt(proof.pi_c[1])];
 
   const note: ZKNote = {
     lendAmt: newLendAmt,
@@ -386,12 +386,12 @@ export async function generateRepayProof(
   const { proof } = await groth16.fullProve(inputs, '/zringotts.wasm', '/zringotts.zkey');
   console.log('[zkproof] Repay proof generated.');
 
-  const pA = [BigInt(proof.pi_a[0]), BigInt(proof.pi_a[1])] as const;
-  const pB = [
+  const pA: [bigint, bigint] = [BigInt(proof.pi_a[0]), BigInt(proof.pi_a[1])];
+  const pB: [[bigint, bigint], [bigint, bigint]] = [
     [BigInt(proof.pi_b[0][1]), BigInt(proof.pi_b[0][0])],
     [BigInt(proof.pi_b[1][1]), BigInt(proof.pi_b[1][0])],
-  ] as const;
-  const pC = [BigInt(proof.pi_c[0]), BigInt(proof.pi_c[1])] as const;
+  ];
+  const pC: [bigint, bigint] = [BigInt(proof.pi_c[0]), BigInt(proof.pi_c[1])];
 
   const note: ZKNote = {
     lendAmt: newLendAmt,
@@ -487,12 +487,12 @@ export async function generateWithdrawProof(
   const { proof } = await groth16.fullProve(inputs, '/zringotts.wasm', '/zringotts.zkey');
   console.log('[zkproof] Withdraw proof generated.');
 
-  const pA = [BigInt(proof.pi_a[0]), BigInt(proof.pi_a[1])] as const;
-  const pB = [
+  const pA: [bigint, bigint] = [BigInt(proof.pi_a[0]), BigInt(proof.pi_a[1])];
+  const pB: [[bigint, bigint], [bigint, bigint]] = [
     [BigInt(proof.pi_b[0][1]), BigInt(proof.pi_b[0][0])],
     [BigInt(proof.pi_b[1][1]), BigInt(proof.pi_b[1][0])],
-  ] as const;
-  const pC = [BigInt(proof.pi_c[0]), BigInt(proof.pi_c[1])] as const;
+  ];
+  const pC: [bigint, bigint] = [BigInt(proof.pi_c[0]), BigInt(proof.pi_c[1])];
 
   const note: ZKNote = {
     lendAmt: newLendAmt,

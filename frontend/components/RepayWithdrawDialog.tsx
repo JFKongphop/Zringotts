@@ -76,7 +76,7 @@ export function RepayWithdrawDialog({ open, onClose, position, action }: Props) 
     : 0; // For borrow, calculated based on LTV
 
   async function handleSubmit() {
-    if (!address || !amount || !position.note) {
+    if (!address || !amount || !position || !position.note) {
       setErrorMsg('Missing required data');
       setStep('error');
       return;
