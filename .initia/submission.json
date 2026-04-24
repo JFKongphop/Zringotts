@@ -1,7 +1,7 @@
 {
   "project_name": "Zringotts",
   "repo_url": "https://github.com/JFKongphop/Zringotts",
-  "commit_sha": "2b93d4aa2a567a139340f5f0e32b026269296db6",
+  "commit_sha": "4b3e2f51bcfe7ddb97a8f9a05a4d88d8eefe9b98",
   "rollup_chain_id": "evm-1",
   "deployed_address": "0x510BF2877a200b5aE58a327A442638817B88C5dE",
   "vm": "evm",
