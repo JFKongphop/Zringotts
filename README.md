@@ -20,7 +20,7 @@ Zringotts is a decentralized lending platform that uses Zero-Knowledge Proofs (Z
   - Browser-based proof generation using snarkjs (15-30 second proving time)
   - Multi-position support with automatic Merkle tree reconstruction from blockchain events
 
-- **The Native Feature**: **InterwovenKit Integration** - The frontend uses InterwovenKit for wallet connection and transaction management, providing users with the native Initia Wallet experience. This includes seamless wallet connectivity using `initiaPrivyWalletConnector`, integrated access to Interwoven Bridge functionality for cross-chain transfers, and a unified interface for managing assets across the Initia ecosystem. Users can connect their Initia Wallet, send EVM transactions, and access bridge functionality all through the InterwovenKit provider.
+- **The Native Feature**: **Interwoven Bridge** - The frontend implements the Interwoven Bridge to enable cross-chain asset transfers between Initia L1 (initiation-2) and the EVM side (evm-1). Users must bridge INIT tokens from L1 to evm-1 before participating in the lending protocol. The bridge page ([frontend/app/bridge/page.tsx](frontend/app/bridge/page.tsx)) uses `openBridge()` from `@initia/interwovenkit-react` to facilitate seamless cross-chain transfers, leveraging Initia's native Interwoven Bridge infrastructure. This enables users to move assets between the Move and EVM execution environments within the Initia ecosystem.
 
 ---
 

@@ -5,8 +5,8 @@
   "rollup_chain_id": "evm-1",
   "deployed_address": "0x510BF2877a200b5aE58a327A442638817B88C5dE",
   "vm": "evm",
-  "native_feature": "interwoven-kit",
+  "native_feature": "interwoven-bridge",
   "core_logic_path": "contracts/src/Zringotts.sol",
-  "native_feature_frontend_path": "frontend/app/page.tsx",
+  "native_feature_frontend_path": "frontend/app/bridge/page.tsx",
   "demo_video_url": "https://youtu.be/0QeIzJuADBw"
 }
