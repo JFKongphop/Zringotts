@@ -9,6 +9,7 @@ export interface NoteSecrets {
   timestamp: string;
   nullifier: string;
   nonce: string;
+  noteHash: string;
 }
 
 export interface Position {
@@ -17,6 +18,7 @@ export interface Position {
   borrowToken: 'WETH' | 'USDC';
   borrowAmount: string;
   commitment: string;
+  merkleIndex: number; // The index in the Merkle tree where this commitment was inserted
   createdAt: number;
   status: 'active' | 'repaid';
   /** ZK note secrets — kept local only, NEVER sent to chain */
@@ -74,5 +76,10 @@ export function usePositionStore() {
     });
   }, []);
 
-  return { positions, addPosition, markRepaid, updatePosition };
+  const clearPositions = useCallback(() => {
+    setPositions([]);
+    localStorage.removeItem(STORAGE_KEY);
+  }, []);
+
+  return { positions, addPosition, markRepaid, updatePosition, clearPositions };
 }
