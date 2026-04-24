@@ -2,10 +2,10 @@
   "project_name": "Zringotts",
   "repo_url": "https://github.com/JFKongphop/Zringotts",
   "commit_sha": "073d7b2489d21d923edeeab81d3c40603f01b54c",
-  "rollup_chain_id": "zringotts-1",
+  "rollup_chain_id": "evm-1",
   "deployed_address": "0x510BF2877a200b5aE58a327A442638817B88C5dE",
   "vm": "evm",
-  "native_feature": "interwoven-bridge",
+  "native_feature": "interwoven-kit",
   "core_logic_path": "contracts/src/Zringotts.sol",
   "native_feature_frontend_path": "frontend/app/page.tsx",
   "demo_video_url": "https://youtu.be/0QeIzJuADBw"
